@@ -17,7 +17,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var statusItem: NSStatusItem!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        popover.contentSize = NSSize(width: 320, height: 480)
+        popover.contentSize = NSSize(width: 380, height: 520)
         popover.behavior = .transient
         popover.contentViewController = NSHostingController(rootView: MenuBarView().environmentObject(state))
 
@@ -28,7 +28,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             button.target = self
         }
 
-        NSApp.addObserver(self, forKeyPath: "keyWindow", options: [], context: nil)
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(windowDidResignKey),
+            name: NSWindow.didResignKeyNotification, object: nil
+        )
 
         state.startMonitoring()
     }
@@ -40,13 +43,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             guard let button = statusItem.button else { return }
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             NSApp.activate(ignoringOtherApps: true)
-            popover.contentViewController?.view.window?.makeKey()
+            if let window = popover.contentViewController?.view.window {
+                window.makeKey()
+                window.acceptsMouseMovedEvents = true
+            }
         }
     }
 
-    override func observeValue(forKeyPath keyPath: String?, of object: Any?, change: [NSKeyValueChangeKey: Any]?, context: UnsafeMutableRawPointer?) {
-        if keyPath == "keyWindow", popover.isShown, NSApp.keyWindow == nil {
-            popover.performClose(nil)
+    @objc private func windowDidResignKey(_ notification: Notification) {
+        guard popover.isShown else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            guard let self, self.popover.isShown else { return }
+            if NSApp.keyWindow == nil || NSApp.keyWindow?.level == .normal {
+                let popoverWindow = self.popover.contentViewController?.view.window
+                if NSApp.keyWindow !== popoverWindow {
+                    self.popover.performClose(nil)
+                }
+            }
         }
     }
 }

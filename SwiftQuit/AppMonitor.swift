@@ -42,8 +42,14 @@ final class AppMonitor {
     }
 
     @objc private func refresh() {
+        var seen = Set<String>()
         let apps = NSWorkspace.shared.runningApplications
-            .filter { ($0.bundleIdentifier ?? "").isEmpty == false && $0.activationPolicy == .regular }
+            .filter { app in
+                guard let bid = app.bundleIdentifier, !bid.isEmpty else { return false }
+                guard app.activationPolicy == .regular else { return false }
+                guard app.localizedName != nil || app.icon != nil else { return false }
+                return seen.insert(bid).inserted
+            }
             .map { AppInfo(runningApp: $0) }
         let fg = NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? ""
         onUpdate(apps, fg)

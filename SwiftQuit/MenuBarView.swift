@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MenuBarView: View {
     @EnvironmentObject var state: AppState
+    @State private var isQuitAppHovered = false
 
     private var idleLabel: String {
         let m = Int(state.idleMinutes)
@@ -27,28 +28,32 @@ struct MenuBarView: View {
             footer
         }
         .frame(maxHeight: .infinity)
+        .onDisappear {
+            isQuitAppHovered = false
+        }
     }
 
     private var header: some View {
         HStack {
             Text("SwiftQuit")
-                .font(.headline)
+                .font(.system(size: 17, weight: .semibold))
             Spacer()
             if state.isAutoQuitEnabled {
                 Text("Auto-quit: \(idleLabel)")
-                    .font(.caption)
+                    .font(.system(size: 13))
                     .foregroundColor(.secondary)
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
     }
 
     private var footer: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: 8) {
             HStack {
                 Toggle("Auto Quit", isOn: $state.isAutoQuitEnabled)
                     .controlSize(.small)
+                    .font(.system(size: 12))
                 Spacer()
                 Menu {
                     Button("15 min") { state.idleMinutes = 15 }
@@ -60,10 +65,10 @@ struct MenuBarView: View {
                     Button("24 hours") { state.idleMinutes = 1440 }
                 } label: {
                     Text(idleLabel)
-                        .font(.system(size: 11))
+                        .font(.system(size: 13))
                 }
                 .controlSize(.small)
-                .frame(width: 70)
+                .frame(width: 72)
                 .disabled(!state.isAutoQuitEnabled)
                 Stepper("", value: $state.idleMinutes, in: 5...1440, step: 5)
                     .controlSize(.small)
@@ -72,21 +77,32 @@ struct MenuBarView: View {
             HStack {
                 Toggle("Launch at Login", isOn: $state.launchAtLogin)
                     .controlSize(.small)
+                    .font(.system(size: 13))
                 Spacer()
                 Button("Quit SwiftQuit") {
                     NSApplication.shared.terminate(nil)
                 }
-                .controlSize(.small)
+                .buttonStyle(.plain)
+                .font(.system(size: 13))
+                .foregroundColor(isQuitAppHovered ? .red : .secondary)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(isQuitAppHovered ? Color.red.opacity(0.1) : Color.clear)
+                )
+                .overlay(HoverObserver(isHovered: $isQuitAppHovered).allowsHitTesting(false))
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
     }
 }
 
 struct AppRow: View {
     let app: AppInfo
     @EnvironmentObject var state: AppState
+    @State private var isQuitHovered = false
 
     private var isExcluded: Bool {
         state.excludedBundleIDs.contains(app.bundleID)
@@ -108,23 +124,23 @@ struct AppRow: View {
     }
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 8) {
             if let icon = app.icon {
                 Image(nsImage: icon)
                     .resizable()
-                    .frame(width: 20, height: 20)
+                    .frame(width: 24, height: 24)
             }
             Text(app.name)
                 .lineLimit(1)
-                .font(.system(size: 12))
+                .font(.system(size: 15))
             if isForeground {
                 Text("●")
-                    .font(.system(size: 8))
+                    .font(.system(size: 12))
                     .foregroundColor(.green)
             }
             if let text = remainingText {
                 Text(text)
-                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .font(.system(size: 12, weight: .medium, design: .monospaced))
                     .foregroundColor(.orange)
             }
             Spacer()
@@ -143,12 +159,72 @@ struct AppRow: View {
             Button("Quit") {
                 state.quitNow(app)
             }
-            .controlSize(.mini)
-            .buttonStyle(.borderless)
+            .buttonStyle(.plain)
+            .font(.system(size: 13))
+            .foregroundColor(isQuitHovered ? .red : .secondary)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(isQuitHovered ? Color.red.opacity(0.1) : Color.clear)
+            )
+            .overlay(HoverObserver(isHovered: $isQuitHovered).allowsHitTesting(false))
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 3)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 5)
         .background(isForeground ? Color.accentColor.opacity(0.08) : Color.clear)
-        .contentShape(Rectangle())
+        .onDisappear {
+            isQuitHovered = false
+        }
+    }
+}
+
+struct HoverObserver: NSViewRepresentable {
+    @Binding var isHovered: Bool
+
+    func makeNSView(context: Context) -> HoverNSView {
+        let view = HoverNSView()
+        view.onHover = { hovering in
+            DispatchQueue.main.async {
+                self.isHovered = hovering
+            }
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: HoverNSView, context: Context) {}
+
+    final class HoverNSView: NSView {
+        var onHover: ((Bool) -> Void)?
+        private var trackingArea: NSTrackingArea?
+
+        override func updateTrackingAreas() {
+            super.updateTrackingAreas()
+            if let area = trackingArea {
+                removeTrackingArea(area)
+            }
+            let area = NSTrackingArea(
+                rect: bounds,
+                options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+                owner: self, userInfo: nil
+            )
+            addTrackingArea(area)
+            trackingArea = area
+        }
+
+        override func mouseEntered(with event: NSEvent) {
+            onHover?(true)
+        }
+
+        override func mouseExited(with event: NSEvent) {
+            onHover?(false)
+        }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if window == nil {
+                onHover?(false)
+            }
+        }
     }
 }
