@@ -1,9 +1,13 @@
 import SwiftUI
 import Combine
+import OSLog
 
 @MainActor
 final class AppState: ObservableObject {
     static let shared = AppState()
+
+    /// How long to wait before retrying a quit request that an app appears to have ignored.
+    private static let quitRetryInterval: TimeInterval = 30
 
     @Published var runningApps: [AppInfo] = []
     @Published var excludedBundleIDs: Set<String> = [] {
@@ -16,16 +20,27 @@ final class AppState: ObservableObject {
         didSet { UserDefaults.standard.set(isAutoQuitEnabled, forKey: "isAutoQuitEnabled"); rebuildTimers() }
     }
     @Published var launchAtLogin: Bool = false {
-        didSet { LaunchAtLoginManager.shared.setEnabled(launchAtLogin) }
+        didSet {
+            guard launchAtLogin != LaunchAtLoginManager.shared.isEnabled else { return }
+            if LaunchAtLoginManager.shared.setEnabled(launchAtLogin) {
+                launchAtLoginError = nil
+            } else {
+                launchAtLoginError = "Could not update the login item. Move SwiftQuit to /Applications and try again."
+                launchAtLogin = LaunchAtLoginManager.shared.isEnabled
+            }
+        }
     }
+    @Published var launchAtLoginError: String?
     @Published var foregroundBundleID: String = "" {
         didSet { touchForeground() }
     }
     @Published var remainingSeconds: [String: Double] = [:]
 
+    private let logger = Logger(subsystem: "com.swiftquit.SwiftQuit", category: "AppState")
     private var monitor: AppMonitor!
     private var quitManager: QuitManager!
     private var lastActiveDates: [String: Date] = [:]
+    private var quitRequests: [String: Date] = [:]
     private var tickTimer: Timer?
     private var prevForeground: String = ""
 
@@ -40,7 +55,6 @@ final class AppState: ObservableObject {
             self?.foregroundBundleID = fg
         }
         quitManager = QuitManager()
-        loadExcluded()
     }
 
     func quitNow(_ app: AppInfo) {
@@ -52,12 +66,22 @@ final class AppState: ObservableObject {
         rebuildTimers()
     }
 
+    func stopMonitoring() {
+        monitor.stop()
+        tickTimer?.invalidate()
+        tickTimer = nil
+    }
+
     private func touchForeground() {
         guard foregroundBundleID != prevForeground else { return }
         if !prevForeground.isEmpty {
             lastActiveDates[prevForeground] = Date()
         }
-        lastActiveDates[foregroundBundleID] = Date()
+        if !foregroundBundleID.isEmpty {
+            // The app is active again, so drop any pending quit for it.
+            lastActiveDates[foregroundBundleID] = Date()
+            quitRequests[foregroundBundleID] = nil
+        }
         prevForeground = foregroundBundleID
     }
 
@@ -76,38 +100,60 @@ final class AppState: ObservableObject {
         let threshold = idleMinutes * 60
         let now = Date()
         var updated: [String: Double] = [:]
+        var runningBundleIDs = Set<String>()
 
         for app in runningApps {
-            guard !excludedBundleIDs.contains(app.bundleID) else { continue }
-            guard app.bundleID != Bundle.main.bundleIdentifier else { continue }
-            guard app.bundleID != "com.apple.finder" else { continue }
+            let bundleID = app.bundleID
+            runningBundleIDs.insert(bundleID)
 
-            if app.bundleID == foregroundBundleID {
-                lastActiveDates[app.bundleID] = now
+            guard bundleID != Bundle.main.bundleIdentifier,
+                  bundleID != "com.apple.finder" else { continue }
+
+            if excludedBundleIDs.contains(bundleID) {
+                // Keep the clock fresh so re-enabling an app starts a full countdown.
+                lastActiveDates[bundleID] = now
+                quitRequests[bundleID] = nil
                 continue
             }
 
-            let lastActive = lastActiveDates[app.bundleID] ?? now
-            let elapsed = now.timeIntervalSince(lastActive)
-            let remaining = max(0, threshold - elapsed)
-
-            if remaining <= 0 {
-                quitManager.quit(app)
-                updated[app.bundleID] = 0
-            } else {
-                updated[app.bundleID] = remaining
+            if bundleID == foregroundBundleID {
+                lastActiveDates[bundleID] = now
+                quitRequests[bundleID] = nil
+                continue
             }
+
+            // Track apps we discover after launch (including ones that were already
+            // running in the background) so the countdown actually starts.
+            if lastActiveDates[bundleID] == nil {
+                lastActiveDates[bundleID] = now
+            }
+            let lastActive = lastActiveDates[bundleID] ?? now
+            let remaining = max(0, threshold - now.timeIntervalSince(lastActive))
+
+            guard remaining <= 0 else {
+                updated[bundleID] = remaining
+                continue
+            }
+
+            if shouldRequestQuit(bundleID, now: now), quitManager.quit(app) {
+                quitRequests[bundleID] = now
+                logger.debug("Requested quit for \(app.name, privacy: .public)")
+            }
+            updated[bundleID] = 0
         }
+
+        // Forget apps that are no longer running, and clear stale quit requests.
+        lastActiveDates = lastActiveDates.filter { runningBundleIDs.contains($0.key) }
+        quitRequests = quitRequests.filter { runningBundleIDs.contains($0.key) }
         remainingSeconds = updated
+    }
+
+    private func shouldRequestQuit(_ bundleID: String, now: Date) -> Bool {
+        guard let requestedAt = quitRequests[bundleID] else { return true }
+        return now.timeIntervalSince(requestedAt) >= Self.quitRetryInterval
     }
 
     private func saveExcluded() {
         UserDefaults.standard.set(Array(excludedBundleIDs), forKey: "excludedBundleIDs")
-    }
-
-    private func loadExcluded() {
-        if let arr = UserDefaults.standard.stringArray(forKey: "excludedBundleIDs") {
-            excludedBundleIDs = Set(arr)
-        }
     }
 }

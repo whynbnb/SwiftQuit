@@ -93,6 +93,13 @@ struct MenuBarView: View {
                 )
                 .overlay(HoverObserver(isHovered: $isQuitAppHovered).allowsHitTesting(false))
             }
+            if let error = state.launchAtLoginError {
+                Text(error)
+                    .font(.system(size: 11))
+                    .foregroundColor(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
@@ -112,12 +119,17 @@ struct AppRow: View {
         state.foregroundBundleID == app.bundleID
     }
 
+    private var isQuitting: Bool {
+        guard let sec = state.remainingSeconds[app.bundleID] else { return false }
+        return sec <= 0
+    }
+
     private var remainingText: String? {
         guard state.isAutoQuitEnabled else { return nil }
         if isExcluded { return nil }
         if isForeground { return nil }
         guard let sec = state.remainingSeconds[app.bundleID] else { return nil }
-        if sec <= 0 { return nil }
+        if sec <= 0 { return "Quitting…" }
         let m = Int(sec) / 60
         let s = Int(sec) % 60
         return m > 0 ? "\(m)m\(s)s" : "\(s)s"
@@ -141,7 +153,7 @@ struct AppRow: View {
             if let text = remainingText {
                 Text(text)
                     .font(.system(size: 12, weight: .medium, design: .monospaced))
-                    .foregroundColor(.orange)
+                    .foregroundColor(isQuitting ? .red : .orange)
             }
             Spacer()
             Toggle("", isOn: Binding(

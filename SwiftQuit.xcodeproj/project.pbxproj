@@ -13,6 +13,7 @@
 		A10004 /* QuitManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10004; };
 		A10005 /* LaunchAtLogin.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10005; };
 		A10006 /* MenuBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10006; };
+		A10007 /* AppIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = B10009; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -25,6 +26,7 @@
 		B10006 /* MenuBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarView.swift; sourceTree = "<group>"; };
 		B10007 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		B10008 /* SwiftQuit.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = SwiftQuit.entitlements; sourceTree = "<group>"; };
+		B10009 /* AppIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = AppIcon.icns; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -55,6 +57,7 @@
 				B10004 /* QuitManager.swift */,
 				B10005 /* LaunchAtLogin.swift */,
 				B10006 /* MenuBarView.swift */,
+				B10009 /* AppIcon.icns */,
 				B10007 /* Info.plist */,
 				B10008 /* SwiftQuit.entitlements */,
 			);
@@ -127,6 +130,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A10007 /* AppIcon.icns in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

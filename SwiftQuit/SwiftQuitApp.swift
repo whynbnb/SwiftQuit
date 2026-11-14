@@ -37,6 +37,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         state.startMonitoring()
     }
 
+    func applicationWillTerminate(_ notification: Notification) {
+        state.stopMonitoring()
+    }
+
     @objc func togglePopover() {
         if popover.isShown {
             popover.performClose(nil)
