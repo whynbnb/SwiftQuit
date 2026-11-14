@@ -16,6 +16,14 @@ struct QuitEvent: Identifiable, Codable, Sendable {
     let reason: QuitReason
 }
 
+/// The app that will be quit next, used to drive the menu bar hourglass.
+struct NextQuit {
+    let app: AppInfo
+    /// Remaining time as a fraction of that app's threshold (0...1).
+    let fraction: Double
+    let remaining: TimeInterval
+}
+
 @MainActor
 final class AppState: ObservableObject {
     static let shared = AppState()
@@ -93,6 +101,20 @@ final class AppState: ObservableObject {
     }
 
     var isPaused: Bool { pausedUntil != nil }
+
+    /// The managed app closest to being quit, if any.
+    var nextQuit: NextQuit? {
+        var best: NextQuit?
+        for app in displayedApps {
+            guard let remaining = remainingSeconds[app.bundleID] else { continue }
+            let threshold = max(1, thresholdMinutes(for: app.bundleID) * 60)
+            let fraction = min(1, max(0, remaining / threshold))
+            if best == nil || fraction < best!.fraction {
+                best = NextQuit(app: app, fraction: fraction, remaining: remaining)
+            }
+        }
+        return best
+    }
 
     /// Set by the app delegate so SwiftUI views can open the settings window.
     var openSettingsAction: (() -> Void)?

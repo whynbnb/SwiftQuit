@@ -160,6 +160,13 @@ struct Strings: Sendable {
         )
     }
 
+    func nextQuitTooltip(app: String, duration: String, closesWindows: Bool) -> String {
+        if closesWindows {
+            return pick("\(app) windows close in \(duration)", "\(app) 将在 \(duration) 后关闭窗口")
+        }
+        return pick("\(app) quits in \(duration)", "\(app) 将在 \(duration) 后退出")
+    }
+
     func notificationBodyClosingWindows(seconds: Int) -> String {
         pick(
             "Closing in \(seconds)s. Choose Keep Running to cancel.",

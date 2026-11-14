@@ -28,12 +28,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = statusItem.button {
-            button.image = MenuBarIcon.make(paused: state.isPaused)
             button.imagePosition = .imageOnly
             button.action = #selector(statusItemClicked)
             button.target = self
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
+        updateStatusIcon()
 
         state.openSettingsAction = { [weak self] in
             self?.showSettings()
@@ -48,11 +48,30 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
             .store(in: &cancellables)
 
+        state.$remainingSeconds
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.updateStatusIcon()
+                }
+            }
+            .store(in: &cancellables)
+
+        state.$isAutoQuitEnabled
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.updateStatusIcon()
+                }
+            }
+            .store(in: &cancellables)
+
         state.$language
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 MainActor.assumeIsolated {
                     self?.localizeSettings()
+                    self?.updateStatusIcon()
                 }
             }
             .store(in: &cancellables)
@@ -71,8 +90,38 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Status item
 
+    private var lastIconKey: String?
+
     private func updateStatusIcon() {
-        statusItem.button?.image = MenuBarIcon.make(paused: state.isPaused)
+        let next = state.isAutoQuitEnabled ? state.nextQuit : nil
+        let fraction = next?.fraction
+        let step = fraction.map {
+            max(0, min(MenuBarIcon.steps, Int(($0 * Double(MenuBarIcon.steps)).rounded())))
+        } ?? -1
+        let paused = state.isPaused
+        let key = "\(step)-\(paused)"
+
+        if key != lastIconKey {
+            lastIconKey = key
+            statusItem.button?.image = MenuBarIcon.make(
+                fraction: step < 0 ? nil : CGFloat(step) / CGFloat(MenuBarIcon.steps),
+                paused: paused
+            )
+        }
+
+        if let next {
+            let minutes = max(1, Int((next.remaining / 60).rounded(.up)))
+            let tooltip = state.strings.nextQuitTooltip(
+                app: next.app.name,
+                duration: state.strings.duration(minutes: minutes),
+                closesWindows: next.app.bundleID == SystemApps.finderBundleID
+            )
+            if statusItem.button?.toolTip != tooltip {
+                statusItem.button?.toolTip = tooltip
+            }
+        } else if statusItem.button?.toolTip != nil {
+            statusItem.button?.toolTip = nil
+        }
     }
 
     @objc private func statusItemClicked() {
