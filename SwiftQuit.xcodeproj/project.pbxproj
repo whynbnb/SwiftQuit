@@ -16,6 +16,7 @@
 		A10007 /* AppIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = B10009; };
 		A10008 /* Localization.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10010; };
 		A10009 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10011; };
+		A10010 /* MenuBarIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10012; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -31,6 +32,7 @@
 		B10009 /* AppIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = AppIcon.icns; sourceTree = "<group>"; };
 		B10010 /* Localization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Localization.swift; sourceTree = "<group>"; };
 		B10011 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		B10012 /* MenuBarIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarIcon.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -63,6 +65,7 @@
 				B10006 /* MenuBarView.swift */,
 				B10010 /* Localization.swift */,
 				B10011 /* SettingsView.swift */,
+				B10012 /* MenuBarIcon.swift */,
 				B10009 /* AppIcon.icns */,
 				B10007 /* Info.plist */,
 				B10008 /* SwiftQuit.entitlements */,
@@ -155,6 +158,7 @@
 				A10006 /* MenuBarView.swift in Sources */,
 				A10008 /* Localization.swift in Sources */,
 				A10009 /* SettingsView.swift in Sources */,
+				A10010 /* MenuBarIcon.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
