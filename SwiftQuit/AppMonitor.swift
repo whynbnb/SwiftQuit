@@ -15,6 +15,12 @@ struct AppInfo: Identifiable, Hashable {
     }
 }
 
+/// Bundle IDs that need special handling rather than plain `terminate()`.
+enum SystemApps {
+    static let selfBundleID = Bundle.main.bundleIdentifier ?? "com.swiftquit.SwiftQuit"
+    static let finderBundleID = "com.apple.finder"
+}
+
 @MainActor
 final class AppMonitor {
     private let onUpdate: @MainActor ([AppInfo], String) -> Void
@@ -69,6 +75,7 @@ final class AppMonitor {
         let apps = NSWorkspace.shared.runningApplications
             .filter { app in
                 guard let bid = app.bundleIdentifier, !bid.isEmpty else { return false }
+                guard bid != SystemApps.selfBundleID else { return false }
                 guard app.activationPolicy == .regular else { return false }
                 guard app.localizedName != nil || app.icon != nil else { return false }
                 return seen.insert(bid).inserted

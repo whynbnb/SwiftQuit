@@ -2,14 +2,13 @@ import SwiftUI
 
 struct MenuBarView: View {
     @EnvironmentObject var state: AppState
+    @Environment(\.openSettings) private var openSettings
     @State private var isQuitAppHovered = false
 
+    private var strings: Strings { state.strings }
+
     private var idleLabel: String {
-        let m = Int(state.idleMinutes)
-        if m >= 60 && m % 60 == 0 {
-            return "\(m / 60)h"
-        }
-        return "\(m)min"
+        strings.duration(minutes: Int(state.idleMinutes))
     }
 
     var body: some View {
@@ -18,7 +17,7 @@ struct MenuBarView: View {
             Divider()
             ScrollView {
                 LazyVStack(spacing: 2) {
-                    ForEach(state.runningApps) { app in
+                    ForEach(state.displayedApps) { app in
                         AppRow(app: app)
                     }
                 }
@@ -39,7 +38,7 @@ struct MenuBarView: View {
                 .font(.system(size: 17, weight: .semibold))
             Spacer()
             if state.isAutoQuitEnabled {
-                Text("Auto-quit: \(idleLabel)")
+                Text(strings.autoQuitSummary(idleLabel))
                     .font(.system(size: 13))
                     .foregroundColor(.secondary)
             }
@@ -51,18 +50,18 @@ struct MenuBarView: View {
     private var footer: some View {
         VStack(spacing: 8) {
             HStack {
-                Toggle("Auto Quit", isOn: $state.isAutoQuitEnabled)
+                Toggle(strings.autoQuit, isOn: $state.isAutoQuitEnabled)
                     .controlSize(.small)
                     .font(.system(size: 12))
                 Spacer()
                 Menu {
-                    Button("15 min") { state.idleMinutes = 15 }
-                    Button("30 min") { state.idleMinutes = 30 }
-                    Button("1 hour") { state.idleMinutes = 60 }
-                    Button("2 hours") { state.idleMinutes = 120 }
-                    Button("4 hours") { state.idleMinutes = 240 }
-                    Button("8 hours") { state.idleMinutes = 480 }
-                    Button("24 hours") { state.idleMinutes = 1440 }
+                    Button(strings.duration(minutes: 15)) { state.idleMinutes = 15 }
+                    Button(strings.duration(minutes: 30)) { state.idleMinutes = 30 }
+                    Button(strings.duration(minutes: 60)) { state.idleMinutes = 60 }
+                    Button(strings.duration(minutes: 120)) { state.idleMinutes = 120 }
+                    Button(strings.duration(minutes: 240)) { state.idleMinutes = 240 }
+                    Button(strings.duration(minutes: 480)) { state.idleMinutes = 480 }
+                    Button(strings.duration(minutes: 1440)) { state.idleMinutes = 1440 }
                 } label: {
                     Text(idleLabel)
                         .font(.system(size: 13))
@@ -74,12 +73,19 @@ struct MenuBarView: View {
                     .controlSize(.small)
                     .disabled(!state.isAutoQuitEnabled)
             }
-            HStack {
-                Toggle("Launch at Login", isOn: $state.launchAtLogin)
+            HStack(spacing: 10) {
+                Toggle(strings.launchAtLogin, isOn: $state.launchAtLogin)
                     .controlSize(.small)
                     .font(.system(size: 13))
                 Spacer()
-                Button("Quit SwiftQuit") {
+                Button(strings.settings) {
+                    NSApp.activate(ignoringOtherApps: true)
+                    openSettings()
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 13))
+                .foregroundColor(.secondary)
+                Button(strings.quitApp) {
                     NSApplication.shared.terminate(nil)
                 }
                 .buttonStyle(.plain)
@@ -93,8 +99,8 @@ struct MenuBarView: View {
                 )
                 .overlay(HoverObserver(isHovered: $isQuitAppHovered).allowsHitTesting(false))
             }
-            if let error = state.launchAtLoginError {
-                Text(error)
+            if state.launchAtLoginFailed {
+                Text(strings.loginItemError)
                     .font(.system(size: 11))
                     .foregroundColor(.red)
                     .fixedSize(horizontal: false, vertical: true)
@@ -111,12 +117,18 @@ struct AppRow: View {
     @EnvironmentObject var state: AppState
     @State private var isQuitHovered = false
 
+    private var strings: Strings { state.strings }
+
     private var isExcluded: Bool {
         state.excludedBundleIDs.contains(app.bundleID)
     }
 
     private var isForeground: Bool {
         state.foregroundBundleID == app.bundleID
+    }
+
+    private var isFinder: Bool {
+        app.bundleID == SystemApps.finderBundleID
     }
 
     private var isQuitting: Bool {
@@ -129,10 +141,8 @@ struct AppRow: View {
         if isExcluded { return nil }
         if isForeground { return nil }
         guard let sec = state.remainingSeconds[app.bundleID] else { return nil }
-        if sec <= 0 { return "Quitting…" }
-        let m = Int(sec) / 60
-        let s = Int(sec) % 60
-        return m > 0 ? "\(m)m\(s)s" : "\(s)s"
+        if sec <= 0 { return strings.quitting }
+        return strings.countdown(minutes: Int(sec) / 60, seconds: Int(sec) % 60)
     }
 
     var body: some View {
@@ -167,8 +177,8 @@ struct AppRow: View {
                 }
             ))
             .controlSize(.small)
-            .help("Include in auto-quit")
-            Button("Quit") {
+            .help(strings.includeInAutoQuitHint)
+            Button(isFinder ? strings.closeWindows : strings.quit) {
                 state.quitNow(app)
             }
             .buttonStyle(.plain)
@@ -181,6 +191,8 @@ struct AppRow: View {
                     .fill(isQuitHovered ? Color.red.opacity(0.1) : Color.clear)
             )
             .overlay(HoverObserver(isHovered: $isQuitHovered).allowsHitTesting(false))
+            .frame(width: 54, alignment: .trailing)
+            .help(isFinder ? strings.closeWindowsHint : strings.quitHint)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 5)

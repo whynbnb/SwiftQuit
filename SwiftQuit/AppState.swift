@@ -23,18 +23,34 @@ final class AppState: ObservableObject {
         didSet {
             guard launchAtLogin != LaunchAtLoginManager.shared.isEnabled else { return }
             if LaunchAtLoginManager.shared.setEnabled(launchAtLogin) {
-                launchAtLoginError = nil
+                launchAtLoginFailed = false
             } else {
-                launchAtLoginError = "Could not update the login item. Move SwiftQuit to /Applications and try again."
+                launchAtLoginFailed = true
                 launchAtLogin = LaunchAtLoginManager.shared.isEnabled
             }
         }
     }
-    @Published var launchAtLoginError: String?
+    @Published var launchAtLoginFailed = false
+    @Published var language: AppLanguage = .system {
+        didSet { UserDefaults.standard.set(language.rawValue, forKey: "appLanguage") }
+    }
+    /// Whether Finder is listed. Finder is never quit; its windows are closed instead.
+    @Published var showFinder: Bool = true {
+        didSet { UserDefaults.standard.set(showFinder, forKey: "showFinder") }
+    }
     @Published var foregroundBundleID: String = "" {
         didSet { touchForeground() }
     }
     @Published var remainingSeconds: [String: Double] = [:]
+
+    /// User-facing strings for the selected language.
+    var strings: Strings { Strings(language: language) }
+
+    /// Apps shown in the popover and settings, honoring the Finder visibility setting.
+    var displayedApps: [AppInfo] {
+        guard !showFinder else { return runningApps }
+        return runningApps.filter { $0.bundleID != SystemApps.finderBundleID }
+    }
 
     private let logger = Logger(subsystem: "com.swiftquit.SwiftQuit", category: "AppState")
     private var monitor: AppMonitor!
@@ -48,6 +64,8 @@ final class AppState: ObservableObject {
         idleMinutes = UserDefaults.standard.object(forKey: "idleMinutes") as? Double ?? 60
         isAutoQuitEnabled = UserDefaults.standard.object(forKey: "isAutoQuitEnabled") as? Bool ?? true
         excludedBundleIDs = Set(UserDefaults.standard.stringArray(forKey: "excludedBundleIDs") ?? [])
+        language = AppLanguage(rawValue: UserDefaults.standard.string(forKey: "appLanguage") ?? "") ?? .system
+        showFinder = UserDefaults.standard.object(forKey: "showFinder") as? Bool ?? true
         launchAtLogin = LaunchAtLoginManager.shared.isEnabled
 
         monitor = AppMonitor { @MainActor [weak self] apps, fg in
@@ -58,7 +76,14 @@ final class AppState: ObservableObject {
     }
 
     func quitNow(_ app: AppInfo) {
-        quitManager.quit(app)
+        let handled = quitManager.quit(app)
+        if app.bundleID == SystemApps.finderBundleID {
+            // Finder stays running, so restart its idle countdown after closing windows.
+            lastActiveDates[app.bundleID] = Date()
+            quitRequests[app.bundleID] = nil
+        } else if handled {
+            quitRequests[app.bundleID] = Date()
+        }
     }
 
     func startMonitoring() {
@@ -106,8 +131,14 @@ final class AppState: ObservableObject {
             let bundleID = app.bundleID
             runningBundleIDs.insert(bundleID)
 
-            guard bundleID != Bundle.main.bundleIdentifier,
-                  bundleID != "com.apple.finder" else { continue }
+            guard bundleID != SystemApps.selfBundleID else { continue }
+
+            if bundleID == SystemApps.finderBundleID && !showFinder {
+                // Hidden Finder is also not managed.
+                lastActiveDates[bundleID] = now
+                quitRequests[bundleID] = nil
+                continue
+            }
 
             if excludedBundleIDs.contains(bundleID) {
                 // Keep the clock fresh so re-enabling an app starts a full countdown.
@@ -132,6 +163,18 @@ final class AppState: ObservableObject {
 
             guard remaining <= 0 else {
                 updated[bundleID] = remaining
+                continue
+            }
+
+            if app.bundleID == SystemApps.finderBundleID {
+                // Finder cannot quit: close its windows, then start a fresh cycle.
+                if shouldRequestQuit(bundleID, now: now) {
+                    _ = quitManager.quit(app)
+                    quitRequests[bundleID] = now
+                    logger.debug("Closed Finder windows")
+                }
+                lastActiveDates[bundleID] = now
+                updated[bundleID] = threshold
                 continue
             }
 

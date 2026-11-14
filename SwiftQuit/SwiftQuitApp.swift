@@ -6,7 +6,8 @@ struct SwiftQuitApp: App {
 
     var body: some Scene {
         Settings {
-            EmptyView()
+            SettingsView()
+                .environmentObject(AppState.shared)
         }
     }
 }
