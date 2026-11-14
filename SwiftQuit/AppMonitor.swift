@@ -14,18 +14,19 @@ struct AppInfo: Identifiable, Hashable {
     }
 }
 
+@MainActor
 final class AppMonitor {
-    private let onUpdate: ([AppInfo], String) -> Void
+    private let onUpdate: @MainActor ([AppInfo], String) -> Void
     private var timer: Timer?
 
-    init(onUpdate: @escaping ([AppInfo], String) -> Void) {
+    init(onUpdate: @escaping @MainActor ([AppInfo], String) -> Void) {
         self.onUpdate = onUpdate
     }
 
     func start() {
         refresh()
         timer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
-            self?.refresh()
+            MainActor.assumeIsolated { self?.refresh() }
         }
         NSWorkspace.shared.notificationCenter.addObserver(
             self, selector: #selector(refresh),

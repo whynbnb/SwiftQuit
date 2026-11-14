@@ -11,6 +11,7 @@ struct SwiftQuitApp: App {
     }
 }
 
+@MainActor
 class AppDelegate: NSObject, NSApplicationDelegate {
     let state = AppState.shared
     let popover = NSPopover()

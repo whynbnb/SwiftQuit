@@ -1,5 +1,6 @@
 import AppKit
 
+@MainActor
 final class QuitManager {
     func quit(_ app: AppInfo) {
         let running = NSWorkspace.shared.runningApplications

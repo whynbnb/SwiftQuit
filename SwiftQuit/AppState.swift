@@ -1,6 +1,7 @@
 import SwiftUI
 import Combine
 
+@MainActor
 final class AppState: ObservableObject {
     static let shared = AppState()
 
@@ -32,8 +33,9 @@ final class AppState: ObservableObject {
         idleMinutes = UserDefaults.standard.object(forKey: "idleMinutes") as? Double ?? 60
         isAutoQuitEnabled = UserDefaults.standard.object(forKey: "isAutoQuitEnabled") as? Bool ?? true
         excludedBundleIDs = Set(UserDefaults.standard.stringArray(forKey: "excludedBundleIDs") ?? [])
+        launchAtLogin = LaunchAtLoginManager.shared.isEnabled
 
-        monitor = AppMonitor { [weak self] apps, fg in
+        monitor = AppMonitor { @MainActor [weak self] apps, fg in
             self?.runningApps = apps
             self?.foregroundBundleID = fg
         }
@@ -66,7 +68,7 @@ final class AppState: ObservableObject {
             return
         }
         tickTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            self?.tick()
+            MainActor.assumeIsolated { self?.tick() }
         }
     }
 

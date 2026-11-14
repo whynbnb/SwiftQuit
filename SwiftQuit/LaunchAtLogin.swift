@@ -1,26 +1,23 @@
 import Foundation
 import ServiceManagement
 
+@MainActor
 final class LaunchAtLoginManager {
     static let shared = LaunchAtLoginManager()
 
+    var isEnabled: Bool {
+        SMAppService.mainApp.status == .enabled
+    }
+
     func setEnabled(_ enabled: Bool) {
-        if #available(macOS 13.0, *) {
+        do {
             if enabled {
-                do {
-                    try SMAppService.mainApp.register()
-                } catch {
-                    print("Launch at login register error: \(error)")
-                }
+                try SMAppService.mainApp.register()
             } else {
-                do {
-                    try SMAppService.mainApp.unregister()
-                } catch {
-                    print("Launch at login unregister error: \(error)")
-                }
+                try SMAppService.mainApp.unregister()
             }
-        } else {
-            SMLoginItemSetEnabled("com.swiftquit.helper" as CFString, enabled)
+        } catch {
+            print("Launch at login \(enabled ? "register" : "unregister") error: \(error)")
         }
     }
 }
