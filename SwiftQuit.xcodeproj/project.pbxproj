@@ -17,6 +17,9 @@
 		A10008 /* Localization.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10010; };
 		A10009 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10011; };
 		A10010 /* MenuBarIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10012; };
+		A10011 /* AudioActivityMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10013; };
+		A10012 /* QuitNotifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10014; };
+		A10013 /* HistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10015; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -33,6 +36,9 @@
 		B10010 /* Localization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Localization.swift; sourceTree = "<group>"; };
 		B10011 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		B10012 /* MenuBarIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarIcon.swift; sourceTree = "<group>"; };
+		B10013 /* AudioActivityMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioActivityMonitor.swift; sourceTree = "<group>"; };
+		B10014 /* QuitNotifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuitNotifier.swift; sourceTree = "<group>"; };
+		B10015 /* HistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -66,6 +72,9 @@
 				B10010 /* Localization.swift */,
 				B10011 /* SettingsView.swift */,
 				B10012 /* MenuBarIcon.swift */,
+				B10013 /* AudioActivityMonitor.swift */,
+				B10014 /* QuitNotifier.swift */,
+				B10015 /* HistoryView.swift */,
 				B10009 /* AppIcon.icns */,
 				B10007 /* Info.plist */,
 				B10008 /* SwiftQuit.entitlements */,
@@ -159,6 +168,9 @@
 				A10008 /* Localization.swift in Sources */,
 				A10009 /* SettingsView.swift in Sources */,
 				A10010 /* MenuBarIcon.swift in Sources */,
+				A10011 /* AudioActivityMonitor.swift in Sources */,
+				A10012 /* QuitNotifier.swift in Sources */,
+				A10013 /* HistoryView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

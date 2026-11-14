@@ -1,44 +1,6 @@
 import SwiftUI
 
-struct SettingsView: View {
-    @EnvironmentObject private var state: AppState
-
-    var body: some View {
-        TabView {
-            GeneralSettingsView()
-                .tabItem {
-                    Label(state.strings.general, systemImage: "gearshape")
-                }
-            AppsSettingsView()
-                .tabItem {
-                    Label(state.strings.appsTab, systemImage: "checklist")
-                }
-        }
-        .frame(width: 480, height: 420)
-        .background(WindowTitleAccessor(title: state.strings.settingsTitle))
-    }
-}
-
-/// Keeps the Settings window title in sync with the in-app language.
-private struct WindowTitleAccessor: NSViewRepresentable {
-    let title: String
-
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView()
-        DispatchQueue.main.async {
-            view.window?.title = title
-        }
-        return view
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {
-        DispatchQueue.main.async {
-            nsView.window?.title = title
-        }
-    }
-}
-
-private struct GeneralSettingsView: View {
+struct GeneralSettingsView: View {
     @EnvironmentObject private var state: AppState
 
     private let presets: [Int] = [15, 30, 60, 120, 240, 480, 1440]
@@ -72,8 +34,29 @@ private struct GeneralSettingsView: View {
                     Text(strings.idleThreshold)
                 }
                 .disabled(!state.isAutoQuitEnabled)
+
+                Picker(selection: $state.gracePeriod) {
+                    Text(strings.graceOption(seconds: 0)).tag(0.0)
+                    Text(strings.graceOption(seconds: 10)).tag(10.0)
+                    Text(strings.graceOption(seconds: 30)).tag(30.0)
+                    Text(strings.graceOption(seconds: 60)).tag(60.0)
+                } label: {
+                    Text(strings.gracePeriod)
+                }
+                .disabled(!state.isAutoQuitEnabled)
+
+                Toggle(strings.skipAudioApps, isOn: $state.skipAudioApps)
+                    .disabled(!state.isAutoQuitEnabled)
             } header: {
                 Text(strings.autoQuit)
+            }
+
+            Section {
+                LabeledContent {
+                    pauseControls
+                } label: {
+                    Text(strings.pauseAutoQuit)
+                }
             }
 
             Section {
@@ -94,16 +77,42 @@ private struct GeneralSettingsView: View {
                 } label: {
                     Text(strings.languageTitle)
                 }
+            } footer: {
                 Text(strings.languageNote)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
+        .frame(minWidth: 520, minHeight: 420)
+    }
+
+    @ViewBuilder
+    private var pauseControls: some View {
+        if let until = state.pausedUntil {
+            HStack(spacing: 8) {
+                Text(strings.pausedUntilLabel(time: until.formatted(date: .omitted, time: .shortened)))
+                    .foregroundStyle(.secondary)
+                Button(strings.resumeNow) {
+                    state.resumePause()
+                }
+            }
+        } else {
+            HStack(spacing: 8) {
+                Button(strings.pauseOneHour) {
+                    state.pauseForOneHour()
+                }
+                .frame(minWidth: 110)
+                Button(strings.pauseUntilTomorrow) {
+                    state.pauseUntilTomorrow()
+                }
+                .frame(minWidth: 110)
+            }
+        }
     }
 }
 
-private struct AppsSettingsView: View {
+struct AppsSettingsView: View {
     @EnvironmentObject private var state: AppState
 
     private var strings: Strings { state.strings }
@@ -120,12 +129,8 @@ private struct AppsSettingsView: View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 12) {
-                    Text(strings.appsSummary(
-                        included: includedCount,
-                        total: apps.count,
-                        idle: strings.duration(minutes: Int(state.idleMinutes))
-                    ))
-                    .font(.system(size: 12, weight: .medium))
+                    Text(strings.appsSummary(included: includedCount, total: apps.count))
+                        .font(.system(size: 12, weight: .medium))
 
                     Spacer()
 
@@ -154,10 +159,12 @@ private struct AppsSettingsView: View {
                     AppToggleRow(
                         app: app,
                         strings: strings,
-                        isIncluded: !state.excludedBundleIDs.contains(app.bundleID)
-                    ) {
-                        toggle(app)
-                    }
+                        isIncluded: !state.excludedBundleIDs.contains(app.bundleID),
+                        globalMinutes: state.idleMinutes,
+                        customMinutes: state.customThresholds[app.bundleID],
+                        onToggle: { toggle(app) },
+                        onSetThreshold: { state.setThreshold($0, for: app.bundleID) }
+                    )
                 }
                 .listStyle(.inset)
             }
@@ -173,20 +180,30 @@ private struct AppsSettingsView: View {
     }
 }
 
-/// One row of the Apps tab: the checkbox/switch means "this app auto-quits when idle".
+/// One row of the Apps tab: the switch means "this app auto-quits when idle".
 private struct AppToggleRow: View {
     let app: AppInfo
     let strings: Strings
     let isIncluded: Bool
+    let globalMinutes: Double
+    let customMinutes: Double?
     let onToggle: () -> Void
+    let onSetThreshold: (Double?) -> Void
 
     @State private var isHovered = false
+
+    private let presets: [Int] = [15, 30, 60, 120, 240, 480, 1440]
 
     private var statusText: String {
         guard isIncluded else { return strings.keepRunningStatus }
         return app.bundleID == SystemApps.finderBundleID
             ? strings.closeWindowsStatus
             : strings.autoQuitStatus
+    }
+
+    private var thresholdLabel: String {
+        guard let customMinutes else { return strings.useGlobalShort }
+        return strings.duration(minutes: Int(customMinutes))
     }
 
     var body: some View {
@@ -212,6 +229,26 @@ private struct AppToggleRow: View {
             .contentShape(Rectangle())
             .onTapGesture(perform: onToggle)
             .help(strings.includeInAutoQuitHint)
+
+            Menu {
+                Button(strings.useGlobalThreshold(duration: strings.duration(minutes: Int(globalMinutes)))) {
+                    onSetThreshold(nil)
+                }
+                Divider()
+                ForEach(presets, id: \.self) { minutes in
+                    Button(strings.duration(minutes: minutes)) {
+                        onSetThreshold(Double(minutes))
+                    }
+                }
+            } label: {
+                Text(thresholdLabel)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .disabled(!isIncluded)
+            .help(strings.idleThreshold)
 
             Toggle("", isOn: Binding(
                 get: { isIncluded },

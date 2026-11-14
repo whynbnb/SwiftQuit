@@ -1,11 +1,11 @@
 import AppKit
 
 /// Custom template image for the menu bar: an hourglass, representing apps
-/// that have been idle for too long.
+/// that have been idle for too long. A slashed variant indicates a pause.
 enum MenuBarIcon {
     static let size = NSSize(width: 18, height: 18)
 
-    static func make() -> NSImage {
+    static func make(paused: Bool = false) -> NSImage {
         let image = NSImage(size: size, flipped: false) { _ in
             let glass = NSBezierPath()
             glass.lineWidth = 1.75
@@ -39,10 +39,35 @@ enum MenuBarIcon {
             NSColor.black.setStroke()
             glass.stroke()
 
+            if paused {
+                drawPauseSlash()
+            }
             return true
         }
         image.isTemplate = true
-        image.accessibilityDescription = "SwiftQuit"
+        image.accessibilityDescription = paused ? "SwiftQuit, paused" : "SwiftQuit"
         return image
+    }
+
+    /// A diagonal "not now" stroke with a small gap around it, so it stays legible
+    /// over the hourglass at 18 pt.
+    private static func drawPauseSlash() {
+        guard let context = NSGraphicsContext.current else { return }
+
+        let path = NSBezierPath()
+        path.move(to: NSPoint(x: 3.4, y: 3.4))
+        path.line(to: NSPoint(x: 14.6, y: 14.6))
+        path.lineWidth = 1.6
+        path.lineCapStyle = .round
+
+        context.saveGraphicsState()
+        context.compositingOperation = .destinationOut
+        path.lineWidth = 4.4
+        path.stroke()
+        context.restoreGraphicsState()
+
+        NSColor.black.setStroke()
+        path.lineWidth = 1.6
+        path.stroke()
     }
 }

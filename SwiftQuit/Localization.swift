@@ -43,10 +43,53 @@ struct Strings: Sendable {
     var includeInAutoQuit: String { pick("Include in auto-quit", "参与自动退出") }
     var includeInAutoQuitHint: String { pick("Uncheck to keep this app running", "取消勾选可让该应用保持运行") }
 
+    // MARK: - Pause
+
+    var pauseAutoQuit: String { pick("Pause Auto Quit", "暂停自动退出") }
+    var pauseOneHour: String { pick("Pause for 1 Hour", "暂停 1 小时") }
+    var pauseUntilTomorrow: String { pick("Pause Until Tomorrow", "暂停到今天结束") }
+    var resumeNow: String { pick("Resume", "恢复") }
+
+    func pausedUntilLabel(time: String) -> String {
+        pick("Paused until \(time)", "已暂停至 \(time)")
+    }
+
+    func pauseBanner(remaining: String) -> String {
+        pick("Auto quit paused · \(remaining) left", "自动退出已暂停 · 剩余 \(remaining)")
+    }
+
+    func pauseRemaining(seconds: TimeInterval) -> String {
+        let total = max(1, Int(seconds.rounded()))
+        if total < 60 {
+            return language == .chinese ? "\(total) 秒" : "\(total) s"
+        }
+        let minutes = Int((Double(total) / 60).rounded(.up))
+        return duration(minutes: minutes)
+    }
+
+    // MARK: - Grace period
+
+    var gracePeriod: String { pick("Grace period", "退出前等待") }
+
+    func graceOption(seconds: Int) -> String {
+        if seconds == 0 { return pick("Immediate", "立即") }
+        if seconds < 60 { return pick("\(seconds) seconds", "\(seconds) 秒") }
+        return pick("\(seconds / 60) minute", "\(seconds / 60) 分钟")
+    }
+
+    func quittingIn(seconds: Int) -> String {
+        pick("Quitting in \(seconds)s", "\(seconds) 秒后退出")
+    }
+
+    // MARK: - Audio
+
+    var skipAudioApps: String { pick("Don't quit apps playing audio", "播放声音或通话时不退出") }
+
     // MARK: - Settings
 
     var general: String { pick("General", "通用") }
     var appsTab: String { pick("Apps", "应用") }
+    var historyTab: String { pick("History", "记录") }
     var enableAutoQuit: String { pick("Enable auto quit", "启用自动退出") }
     var idleThreshold: String { pick("Idle threshold", "空闲阈值") }
     var languageTitle: String { pick("Language", "语言") }
@@ -64,10 +107,10 @@ struct Strings: Sendable {
             "勾选的应用在后台空闲一段时间后会自动退出；取消勾选即可让它一直保持运行。Finder 无法退出，将改为关闭其打开的窗口。"
         )
     }
-    func appsSummary(included: Int, total: Int, idle: String) -> String {
+    func appsSummary(included: Int, total: Int) -> String {
         pick(
-            "\(included) of \(total) apps auto-managed · idle threshold \(idle)",
-            "自动管理 \(included)/\(total) 个应用 · 空闲阈值 \(idle)"
+            "\(included) of \(total) apps auto-managed",
+            "自动管理 \(included)/\(total) 个应用"
         )
     }
     var showFinder: String { pick("Show Finder", "显示 Finder") }
@@ -75,6 +118,56 @@ struct Strings: Sendable {
     var closeWindowsStatus: String { pick("Closes windows when idle", "空闲后关闭窗口") }
     var keepRunningStatus: String { pick("Kept running", "保持运行") }
     var noRunningApps: String { pick("No running apps", "没有运行中的应用") }
+
+    // MARK: - Per-app threshold
+
+    var useGlobalShort: String { pick("Global", "全局") }
+
+    func useGlobalThreshold(duration: String) -> String {
+        pick("Use global (\(duration))", "跟随全局（\(duration)）")
+    }
+
+    // MARK: - History
+
+    var historyDescription: String {
+        pick(
+            "The most recent automatic and manual quits.",
+            "最近发生的自动退出与手动退出记录。"
+        )
+    }
+    var historyEmpty: String { pick("No quits yet", "还没有退出记录") }
+    var historyClear: String { pick("Clear", "清空") }
+
+    func reasonLabel(_ reason: QuitReason) -> String {
+        switch reason {
+        case .idle: return pick("Idle", "空闲")
+        case .manual: return pick("Manual", "手动")
+        case .windows: return pick("Windows", "关闭窗口")
+        }
+    }
+
+    // MARK: - Notifications
+
+    func notificationTitle(app: String) -> String {
+        pick("\(app) is idle", "\(app) 已空闲")
+    }
+    var notificationTitleCloseWindows: String { pick("Finder windows are idle", "访达窗口已空闲") }
+
+    func notificationBody(seconds: Int) -> String {
+        pick(
+            "Quitting in \(seconds)s. Choose Keep Running to cancel.",
+            "\(seconds) 秒后退出，选择「保持运行」可取消。"
+        )
+    }
+
+    func notificationBodyClosingWindows(seconds: Int) -> String {
+        pick(
+            "Closing in \(seconds)s. Choose Keep Running to cancel.",
+            "\(seconds) 秒后关闭窗口，选择「保持运行」可取消。"
+        )
+    }
+
+    var keepRunning: String { pick("Keep Running", "保持运行") }
 
     // MARK: - Formatting
 

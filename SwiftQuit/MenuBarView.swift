@@ -2,7 +2,6 @@ import SwiftUI
 
 struct MenuBarView: View {
     @EnvironmentObject var state: AppState
-    @Environment(\.openSettings) private var openSettings
     @State private var isQuitAppHovered = false
 
     private var strings: Strings { state.strings }
@@ -15,6 +14,10 @@ struct MenuBarView: View {
         VStack(spacing: 0) {
             header
             Divider()
+            if state.isPaused {
+                pauseBanner
+                Divider()
+            }
             ScrollView {
                 LazyVStack(spacing: 2) {
                     ForEach(state.displayedApps) { app in
@@ -67,6 +70,26 @@ struct MenuBarView: View {
         .padding(.vertical, 10)
     }
 
+    private var pauseBanner: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "pause.circle.fill")
+                .font(.system(size: 12))
+                .foregroundColor(.orange)
+            Text(strings.pauseBanner(remaining: strings.pauseRemaining(seconds: state.pauseRemaining)))
+                .font(.system(size: 12))
+            Spacer()
+            Button(strings.resumeNow) {
+                state.resumePause()
+            }
+            .buttonStyle(.plain)
+            .font(.system(size: 12, weight: .medium))
+            .foregroundColor(.orange)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 7)
+        .background(Color.orange.opacity(0.08))
+    }
+
     private var footer: some View {
         VStack(spacing: 8) {
             HStack(spacing: 10) {
@@ -75,8 +98,7 @@ struct MenuBarView: View {
                     .font(.system(size: 13))
                 Spacer()
                 Button(strings.settings) {
-                    NSApp.activate(ignoringOtherApps: true)
-                    openSettings()
+                    state.openSettings()
                 }
                 .buttonStyle(.plain)
                 .font(.system(size: 13))
@@ -128,8 +150,7 @@ struct AppRow: View {
     }
 
     private var isQuitting: Bool {
-        guard let sec = state.remainingSeconds[app.bundleID] else { return false }
-        return sec <= 0
+        state.pendingQuits.contains(app.bundleID)
     }
 
     private var remainingText: String? {
@@ -137,6 +158,9 @@ struct AppRow: View {
         if isExcluded { return nil }
         if isForeground { return nil }
         guard let sec = state.remainingSeconds[app.bundleID] else { return nil }
+        if isQuitting {
+            return strings.quittingIn(seconds: max(1, Int(sec.rounded(.up))))
+        }
         if sec <= 0 { return strings.quitting }
         return strings.countdown(minutes: Int(sec) / 60, seconds: Int(sec) % 60)
     }
@@ -172,7 +196,7 @@ struct AppRow: View {
             if let text = remainingText {
                 Text(text)
                     .font(.system(size: 12, weight: .medium, design: .monospaced))
-                    .foregroundColor(isQuitting ? .red : .orange)
+                    .foregroundColor(isQuitting || (state.remainingSeconds[app.bundleID] ?? 1) <= 0 ? .red : .orange)
             }
             Spacer()
             Button(isFinder ? strings.closeWindows : strings.quit) {
