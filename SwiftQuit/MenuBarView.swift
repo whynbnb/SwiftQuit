@@ -33,15 +33,35 @@ struct MenuBarView: View {
     }
 
     private var header: some View {
-        HStack {
+        HStack(spacing: 10) {
             Text("SwiftQuit")
                 .font(.system(size: 17, weight: .semibold))
+
+            Toggle(strings.autoQuit, isOn: $state.isAutoQuitEnabled)
+                .controlSize(.small)
+                .font(.system(size: 12))
+
             Spacer()
-            if state.isAutoQuitEnabled {
-                Text(strings.autoQuitSummary(idleLabel))
+
+            Menu {
+                Button(strings.duration(minutes: 15)) { state.idleMinutes = 15 }
+                Button(strings.duration(minutes: 30)) { state.idleMinutes = 30 }
+                Button(strings.duration(minutes: 60)) { state.idleMinutes = 60 }
+                Button(strings.duration(minutes: 120)) { state.idleMinutes = 120 }
+                Button(strings.duration(minutes: 240)) { state.idleMinutes = 240 }
+                Button(strings.duration(minutes: 480)) { state.idleMinutes = 480 }
+                Button(strings.duration(minutes: 1440)) { state.idleMinutes = 1440 }
+            } label: {
+                Text(idleLabel)
                     .font(.system(size: 13))
-                    .foregroundColor(.secondary)
             }
+            .controlSize(.small)
+            .frame(width: 72)
+            .disabled(!state.isAutoQuitEnabled)
+
+            Stepper("", value: $state.idleMinutes, in: 5...1440, step: 5)
+                .controlSize(.small)
+                .disabled(!state.isAutoQuitEnabled)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
@@ -49,30 +69,6 @@ struct MenuBarView: View {
 
     private var footer: some View {
         VStack(spacing: 8) {
-            HStack {
-                Toggle(strings.autoQuit, isOn: $state.isAutoQuitEnabled)
-                    .controlSize(.small)
-                    .font(.system(size: 12))
-                Spacer()
-                Menu {
-                    Button(strings.duration(minutes: 15)) { state.idleMinutes = 15 }
-                    Button(strings.duration(minutes: 30)) { state.idleMinutes = 30 }
-                    Button(strings.duration(minutes: 60)) { state.idleMinutes = 60 }
-                    Button(strings.duration(minutes: 120)) { state.idleMinutes = 120 }
-                    Button(strings.duration(minutes: 240)) { state.idleMinutes = 240 }
-                    Button(strings.duration(minutes: 480)) { state.idleMinutes = 480 }
-                    Button(strings.duration(minutes: 1440)) { state.idleMinutes = 1440 }
-                } label: {
-                    Text(idleLabel)
-                        .font(.system(size: 13))
-                }
-                .controlSize(.small)
-                .frame(width: 72)
-                .disabled(!state.isAutoQuitEnabled)
-                Stepper("", value: $state.idleMinutes, in: 5...1440, step: 5)
-                    .controlSize(.small)
-                    .disabled(!state.isAutoQuitEnabled)
-            }
             HStack(spacing: 10) {
                 Toggle(strings.launchAtLogin, isOn: $state.launchAtLogin)
                     .controlSize(.small)
@@ -147,6 +143,19 @@ struct AppRow: View {
 
     var body: some View {
         HStack(spacing: 8) {
+            Toggle("", isOn: Binding(
+                get: { !isExcluded },
+                set: { checked in
+                    if checked {
+                        state.excludedBundleIDs.remove(app.bundleID)
+                    } else {
+                        state.excludedBundleIDs.insert(app.bundleID)
+                    }
+                }
+            ))
+            .controlSize(.small)
+            .help(strings.includeInAutoQuitHint)
+
             if let icon = app.icon {
                 Image(nsImage: icon)
                     .resizable()
@@ -166,18 +175,6 @@ struct AppRow: View {
                     .foregroundColor(isQuitting ? .red : .orange)
             }
             Spacer()
-            Toggle("", isOn: Binding(
-                get: { !isExcluded },
-                set: { checked in
-                    if checked {
-                        state.excludedBundleIDs.remove(app.bundleID)
-                    } else {
-                        state.excludedBundleIDs.insert(app.bundleID)
-                    }
-                }
-            ))
-            .controlSize(.small)
-            .help(strings.includeInAutoQuitHint)
             Button(isFinder ? strings.closeWindows : strings.quit) {
                 state.quitNow(app)
             }

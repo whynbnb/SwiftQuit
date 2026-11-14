@@ -43,10 +43,6 @@ struct Strings: Sendable {
     var includeInAutoQuit: String { pick("Include in auto-quit", "参与自动退出") }
     var includeInAutoQuitHint: String { pick("Uncheck to keep this app running", "取消勾选可让该应用保持运行") }
 
-    func autoQuitSummary(_ duration: String) -> String {
-        pick("Auto-quit: \(duration)", "自动退出：\(duration)")
-    }
-
     // MARK: - Settings
 
     var general: String { pick("General", "通用") }
