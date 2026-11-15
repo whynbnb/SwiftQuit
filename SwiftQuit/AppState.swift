@@ -132,6 +132,10 @@ final class AppState: ObservableObject {
     /// How long to wait before retrying a quit request that an app appears to have ignored.
     private static let quitRetryInterval: TimeInterval = 30
     private static let historyLimit = 100
+    /// The countdown timer fires once a second. A longer pause means the process
+    /// was suspended (typically system sleep), not that time passed normally.
+    private static let tickInterval: TimeInterval = 1
+    private static let maximumTickGap: TimeInterval = 30
 
     @Published var runningApps: [AppInfo] = []
     /// Menu bar apps: GUI agents that can be reached through NSRunningApplication.
@@ -284,6 +288,12 @@ final class AppState: ObservableObject {
     private var audioBundleIDs: Set<String> = []
     private var lastAudioRefresh: Date = .distantPast
     private var isResolvingBackgroundNames = false
+    /// When the last tick actually ran, used to spot suspended time.
+    private var lastTickDate: Date?
+    /// Sleep start, reported by the workspace, so the sleep duration can be
+    /// excluded from idleness even if no tick ran while asleep.
+    private var sleepStartedAt: Date?
+    private var workspaceObservers: [NSObjectProtocol] = []
 
     private init() {
         idleMinutes = UserDefaults.standard.object(forKey: "idleMinutes") as? Double ?? 60
@@ -324,6 +334,49 @@ final class AppState: ObservableObject {
         notifier.requestAuthorization()
         notifier.onKeepRunning = { [weak self] bundleID in
             self?.keepRunning(bundleID: bundleID)
+        }
+
+        observeSystemSleep()
+    }
+
+    // MARK: - Sleep
+
+    private func observeSystemSleep() {
+        let center = NSWorkspace.shared.notificationCenter
+        workspaceObservers.append(center.addObserver(
+            forName: NSWorkspace.willSleepNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.sleepStartedAt = Date() }
+        })
+        workspaceObservers.append(center.addObserver(
+            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.systemDidWake() }
+        })
+    }
+
+    /// Time spent asleep must not count as idle time. Without this, waking after
+    /// a long sleep makes every app look overdue and they are all quit at once.
+    private func systemDidWake() {
+        defer { sleepStartedAt = nil }
+        guard let started = sleepStartedAt else { return }
+        let slept = Date().timeIntervalSince(started)
+        guard slept > 1 else { return }
+        shiftIdleClocks(by: slept)
+        lastTickDate = Date()
+        lastAudioRefresh = .distantPast
+        logger.debug("Woke after \(slept, privacy: .public)s asleep; idleness clocks shifted")
+    }
+
+    /// Moves every idle deadline forward, so a suspended period is treated like
+    /// the pause feature treats its own duration.
+    private func shiftIdleClocks(by delta: TimeInterval) {
+        guard delta > 0 else { return }
+        for (bundleID, date) in lastActiveDates {
+            lastActiveDates[bundleID] = date.addingTimeInterval(delta)
+        }
+        for (bundleID, deadline) in graceDeadlines {
+            graceDeadlines[bundleID] = deadline.addingTimeInterval(delta)
         }
     }
 
@@ -517,6 +570,10 @@ final class AppState: ObservableObject {
         monitor.stop()
         tickTimer?.invalidate()
         tickTimer = nil
+        for observer in workspaceObservers {
+            NSWorkspace.shared.notificationCenter.removeObserver(observer)
+        }
+        workspaceObservers.removeAll()
     }
 
     // MARK: - Pause
@@ -637,17 +694,34 @@ final class AppState: ObservableObject {
 
     private func rebuildTimers() {
         tickTimer?.invalidate()
+        // Restarting the timer deliberately is not the same as the process being
+        // suspended, so the next tick must not treat the gap as sleep.
+        lastTickDate = nil
         guard isAutoQuitEnabled else {
             remainingSeconds = [:]
             return
         }
-        tickTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+        tickTimer = Timer.scheduledTimer(withTimeInterval: Self.tickInterval, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
         }
     }
 
     private func tick() {
         let now = Date()
+
+        // The timer can be suspended without a wake notification (fast user
+        // switching, a stalled run loop). Treat any suspiciously long gap as
+        // time that should not count towards idleness. While paused this is
+        // already handled by `resumePause`, so skip it to avoid shifting twice.
+        if pausedUntil == nil, let last = lastTickDate {
+            let gap = now.timeIntervalSince(last)
+            if gap > Self.maximumTickGap {
+                shiftIdleClocks(by: gap)
+                lastAudioRefresh = .distantPast
+                logger.debug("Tick gap of \(gap, privacy: .public)s shifted idleness clocks")
+            }
+        }
+        lastTickDate = now
 
         if let until = pausedUntil {
             if until > now {
