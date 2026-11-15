@@ -151,6 +151,11 @@ struct MenuBarView: View {
                     Text(strings.backgroundSweepResult(quit: result.quitCount, kept: result.keptCount))
                         .font(.system(size: 11))
                         .foregroundColor(.secondary)
+                    if result.skippedActiveCount > 0 {
+                        Text(strings.backgroundSweepSkipped(result.skippedActiveCount))
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                    }
                     if result.stubbornCount > 0 {
                         Text(strings.backgroundSweepWarning(stubborn: result.stubbornCount))
                             .font(.system(size: 11))
@@ -434,6 +439,17 @@ struct BackgroundRow: View {
                 Text(detail)
                     .font(.system(size: 10))
                     .foregroundColor(.secondary)
+            }
+            if item.isActive {
+                Text(strings.backgroundActive)
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundColor(.orange)
+                    .padding(.horizontal, 3)
+                    .padding(.vertical, 1)
+                    .background(
+                        RoundedRectangle(cornerRadius: 3)
+                            .fill(Color.orange.opacity(0.14))
+                    )
             }
             Spacer()
             Button(strings.removeFromList) {

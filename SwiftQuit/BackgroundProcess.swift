@@ -17,6 +17,18 @@ struct BackgroundProcess: Identifiable, Hashable {
 
     var processCount: Int { pids.count }
 
+    /// CPU usage across the group, as a percentage of one core (100 = one core
+    /// fully busy). Sampled between two process scans.
+    var cpuPercent: Double
+
+    /// True when the group was busy recently, so it is probably doing real work.
+    /// Bursty work keeps this true for a short while after the CPU spike.
+    var isActive: Bool
+
+    /// Whether the group was actually sampled. A brand new process has no
+    /// previous measurement yet, so its activity is unknown.
+    var hasActivitySample: Bool
+
     /// Where the tool lives, shortened with `~` when it sits in the home folder.
     var displayPath: String {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
@@ -46,6 +58,7 @@ struct ProcessScanResult {
 ///
 /// This is deliberately not `NSWorkspace.runningApplications`, which only knows
 /// about GUI apps and therefore never sees tools such as `herdr` or `opencode`.
+@MainActor
 enum ProcessScanner {
     private static let logger = Logger(subsystem: "com.swiftquit.SwiftQuit", category: "ProcessScanner")
 
@@ -74,6 +87,22 @@ enum ProcessScanner {
     /// invocations or one-shot commands, so listing them would just flicker.
     private static let minimumAge: TimeInterval = 30
 
+    /// Sustained CPU above this share of one core counts as "working".
+    private static let activeCPUThreshold: Double = 5
+
+    /// Activity sticks for a moment so a short burst (a build step, a sync)
+    /// still reads as active on the next scan.
+    private static let activeLingerDuration: TimeInterval = 15
+
+    /// CPU counters from the previous scan, keyed by PID, so usage can be
+    /// derived from the delta. `pti_total_*` is in mach absolute time units.
+    private struct CPUSample {
+        let at: Date
+        let ticks: UInt64
+        let activeUntil: Date?
+    }
+    private static var previousSamples: [Int32: CPUSample] = [:]
+
     static func scan() -> ProcessScanResult {
         let protected = protectedPIDs()
         let uid = getuid()
@@ -87,9 +116,14 @@ enum ProcessScanner {
             var startedAt: Date
             /// True when every process in the group is an ancestor of SwiftQuit.
             var allProtected = true
+            var cpuPercent: Double = 0
+            /// True while any process in the group is still inside its linger window.
+            var hasRecentActivity = false
+            var hasActivitySample = false
         }
 
         var buckets: [String: Bucket] = [:]
+        var samples: [Int32: CPUSample] = [:]
 
         for record in allProcesses() {
             let pid = record.pid
@@ -109,12 +143,17 @@ enum ProcessScanner {
 
             let (key, name) = identity(for: path)
             let isAncestor = protected.contains(pid)
+            let activity = activity(for: pid, now: now)
+            if let sample = activity.sample { samples[pid] = sample }
 
             if var bucket = buckets[key] {
                 bucket.pids.append(pid)
                 bucket.paths.insert(path)
                 if record.startedAt < bucket.startedAt { bucket.startedAt = record.startedAt }
                 if !isAncestor { bucket.allProtected = false }
+                bucket.cpuPercent += activity.percent
+                bucket.hasRecentActivity = bucket.hasRecentActivity || activity.isLingering
+                bucket.hasActivitySample = bucket.hasActivitySample || activity.hasSample
                 buckets[key] = bucket
             } else {
                 buckets[key] = Bucket(
@@ -123,20 +162,33 @@ enum ProcessScanner {
                     pids: [pid],
                     paths: [path],
                     startedAt: record.startedAt,
-                    allProtected: isAncestor
+                    allProtected: isAncestor,
+                    cpuPercent: activity.percent,
+                    hasRecentActivity: activity.isLingering,
+                    hasActivitySample: activity.hasSample
                 )
             }
         }
 
+        // Forget processes that are gone so the table cannot grow forever.
+        previousSamples = samples
+
         var groups: [BackgroundProcess] = []
         var ancestors: [BackgroundProcess] = []
         for bucket in buckets.values {
+            // Judge the group as a whole: a five-process service is working if
+            // the sum is high, even when no single process stands out.
+            let isActive = bucket.hasActivitySample
+                && (bucket.cpuPercent >= activeCPUThreshold || bucket.hasRecentActivity)
             let process = BackgroundProcess(
                 id: bucket.key,
                 name: bucket.name,
                 pids: bucket.pids.sorted(),
                 executablePaths: bucket.paths.sorted(),
-                startedAt: bucket.startedAt
+                startedAt: bucket.startedAt,
+                cpuPercent: bucket.cpuPercent,
+                isActive: isActive,
+                hasActivitySample: bucket.hasActivitySample
             )
             if bucket.allProtected {
                 ancestors.append(process)
@@ -149,6 +201,73 @@ enum ProcessScanner {
             list.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         }
         return ProcessScanResult(groups: sorted(groups), ancestorGroups: sorted(ancestors))
+    }
+
+    // MARK: - Activity
+
+    private struct Activity {
+        let percent: Double
+        /// True while the process is still inside its linger window.
+        let isLingering: Bool
+        let hasSample: Bool
+        let sample: CPUSample?
+    }
+
+    /// Works out how much CPU a process used since the previous scan.
+    ///
+    /// The first time a process is seen there is nothing to compare against, so
+    /// the measurement is reported as unknown rather than idle; that keeps a
+    /// just-launched build from looking safe to kill.
+    private static func activity(for pid: Int32, now: Date) -> Activity {
+        guard let ticks = cpuTicks(pid) else {
+            return Activity(percent: 0, isLingering: false, hasSample: false, sample: nil)
+        }
+        guard let previous = previousSamples[pid], now > previous.at else {
+            let sample = CPUSample(at: now, ticks: ticks, activeUntil: nil)
+            return Activity(percent: 0, isLingering: false, hasSample: false, sample: sample)
+        }
+
+        let elapsed = now.timeIntervalSince(previous.at)
+        guard elapsed >= 0.5 else {
+            return Activity(
+                percent: 0,
+                isLingering: previous.activeUntil.map { $0 > now } ?? false,
+                hasSample: true,
+                sample: CPUSample(at: previous.at, ticks: previous.ticks, activeUntil: previous.activeUntil)
+            )
+        }
+
+        let deltaSeconds = seconds(fromTicks: ticks &- previous.ticks)
+        let percent = max(0, deltaSeconds / elapsed * 100)
+        let wasActive = previous.activeUntil.map { $0 > now } ?? false
+        let isActive = percent >= activeCPUThreshold || wasActive
+        let activeUntil = isActive ? now.addingTimeInterval(activeLingerDuration) : nil
+
+        return Activity(
+            percent: percent,
+            isLingering: activeUntil != nil,
+            hasSample: true,
+            sample: CPUSample(at: now, ticks: ticks, activeUntil: activeUntil)
+        )
+    }
+
+    private static let timebase: mach_timebase_info_data_t = {
+        var info = mach_timebase_info_data_t()
+        mach_timebase_info(&info)
+        return info
+    }()
+
+    /// Converts mach absolute time units to seconds (the counters from
+    /// `proc_taskinfo` use the same clock as `mach_absolute_time`).
+    private static func seconds(fromTicks ticks: UInt64) -> Double {
+        Double(ticks) * Double(timebase.numer) / Double(timebase.denom) / 1_000_000_000
+    }
+
+    private static func cpuTicks(_ pid: Int32) -> UInt64? {
+        var info = proc_taskinfo()
+        let size = Int32(MemoryLayout<proc_taskinfo>.size)
+        guard proc_pidinfo(pid, PROC_PIDTASKINFO, 0, &info, size) == size else { return nil }
+        return info.pti_total_user &+ info.pti_total_system
     }
 
     /// Decides how a process is grouped and named.

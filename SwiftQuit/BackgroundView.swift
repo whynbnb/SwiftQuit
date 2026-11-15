@@ -43,6 +43,11 @@ struct BackgroundSettingsView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+
+            Toggle(strings.skipActiveBackgroundItems, isOn: $state.skipActiveBackgroundItems)
+                .toggleStyle(.checkbox)
+                .controlSize(.small)
+                .help(strings.skipActiveBackgroundItemsHint)
         }
         .padding(.horizontal, 20)
         .padding(.top, 16)
@@ -141,8 +146,19 @@ struct BackgroundSettingsView: View {
             detail: item.detail,
             strings: strings,
             isBlacklisted: state.isBackgroundBlacklisted(item.target),
+            activity: activity(for: item),
             onToggle: { state.toggleBackgroundBlacklist(item.target) }
         )
+    }
+
+    /// A short "active / idle" label for CLI processes. Menu bar apps have no
+    /// CPU measurement, so they show nothing.
+    private func activity(for item: BackgroundItem) -> BackgroundActivity? {
+        guard item.hasActivitySample else { return nil }
+        if item.isActive {
+            return .active(cpu: item.cpuPercent ?? 0)
+        }
+        return .idle
     }
 
     /// A blacklisted item that is not running now. It stays on the list so it is
@@ -174,6 +190,11 @@ struct BackgroundSettingsView: View {
                 Text(strings.backgroundSweepResult(quit: result.quitCount, kept: result.keptCount))
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                if result.skippedActiveCount > 0 {
+                    Text(strings.backgroundSweepSkipped(result.skippedActiveCount))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 if result.stubbornCount > 0 {
                     Text(strings.backgroundSweepWarning(stubborn: result.stubbornCount))
                         .font(.caption)
@@ -192,6 +213,12 @@ struct BackgroundSettingsView: View {
     }
 }
 
+/// How busy a background process is, as shown next to its name.
+enum BackgroundActivity {
+    case active(cpu: Double)
+    case idle
+}
+
 /// One row of the background tab: the switch means "stop this during a sweep".
 struct BackgroundToggleRow: View {
     let name: String
@@ -200,6 +227,8 @@ struct BackgroundToggleRow: View {
     let detail: String?
     let strings: Strings
     let isBlacklisted: Bool
+    /// CPU activity for CLI processes; nil for menu bar apps and unsampled ones.
+    var activity: BackgroundActivity?
     /// Rendered but not controllable, with an explanation in the section footer.
     var isExcluded: Bool = false
     /// Not running right now; the switch removes it from the list instead of
@@ -209,14 +238,46 @@ struct BackgroundToggleRow: View {
 
     @State private var isHovered = false
 
+    private var activityLabel: String {
+        switch activity {
+        case .active(let cpu):
+            return "\(strings.backgroundActive) \(Int(cpu.rounded()))%"
+        case .idle:
+            return strings.backgroundIdle
+        case nil:
+            return ""
+        }
+    }
+
+    private var activityColor: Color {
+        switch activity {
+        case .active: return .orange
+        case .idle: return .secondary
+        case nil: return .clear
+        }
+    }
+
     var body: some View {
         HStack(spacing: 10) {
             HStack(spacing: 10) {
                 iconView
 
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(name)
-                        .lineLimit(1)
+                    HStack(spacing: 6) {
+                        Text(name)
+                            .lineLimit(1)
+                        if activity != nil && !isExcluded {
+                            Text(activityLabel)
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundStyle(activityColor)
+                                .padding(.horizontal, 4)
+                                .padding(.vertical, 1)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 3)
+                                        .fill(activityColor.opacity(0.14))
+                                )
+                        }
+                    }
                     HStack(spacing: 6) {
                         if isExcluded {
                             Text(strings.backgroundAncestorStatus)

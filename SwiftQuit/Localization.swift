@@ -167,6 +167,17 @@ struct Strings: Sendable {
     var backgroundMenuBarSection: String { pick("Menu Bar Apps", "菜单栏应用") }
     var backgroundProcessSection: String { pick("Command Line Processes", "命令行进程") }
     var backgroundNotRunning: String { pick("Not running", "未运行") }
+    var backgroundActive: String { pick("Active", "活跃") }
+    var backgroundIdle: String { pick("Idle", "空闲") }
+    var skipActiveBackgroundItems: String {
+        pick("Don't stop items that are working", "正在干活的项目不关闭")
+    }
+    var skipActiveBackgroundItemsHint: String {
+        pick(
+            "Skip anything using CPU right now, such as a running build or a busy daemon.",
+            "跳过当前占用 CPU 的项目，例如正在编译的任务或繁忙的守护进程。"
+        )
+    }
     var backgroundAncestorSection: String { pick("Currently excluded", "当前排除") }
     var backgroundAncestorStatus: String { pick("Launching SwiftQuit", "正在托管 SwiftQuit") }
     var backgroundAncestorNote: String {
@@ -210,18 +221,25 @@ struct Strings: Sendable {
 
     func backgroundSweepResult(quit: Int, kept: Int) -> String {
         if quit == 0 {
-            return pick("Nothing to close", "没有需要关闭的应用")
+            return pick("Nothing to close", "没有需要关闭的项目")
         }
         return pick(
-            "Closed \(quit) app\(quit == 1 ? "" : "s"), kept \(kept)",
+            "Closed \(quit) item\(quit == 1 ? "" : "s"), kept \(kept)",
             "已关闭 \(quit) 个，保留 \(kept) 个"
+        )
+    }
+
+    func backgroundSweepSkipped(_ count: Int) -> String {
+        pick(
+            "\(count) busy item\(count == 1 ? "" : "s") left running",
+            "\(count) 个正在干活的项目已跳过"
         )
     }
 
     func backgroundSweepWarning(stubborn: Int) -> String {
         pick(
-            "\(stubborn) app\(stubborn == 1 ? "" : "s") did not quit",
-            "\(stubborn) 个应用未退出"
+            "\(stubborn) item\(stubborn == 1 ? "" : "s") did not quit",
+            "\(stubborn) 个项目未退出"
         )
     }
 

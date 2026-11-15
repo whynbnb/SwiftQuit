@@ -111,15 +111,33 @@ enum BackgroundItem: Identifiable, Hashable {
         guard case .process(let group) = self, group.processCount > 1 else { return nil }
         return "×\(group.processCount)"
     }
+
+    /// Whether this item looks busy right now. Menu bar apps are not measured.
+    var isActive: Bool {
+        guard case .process(let group) = self else { return false }
+        return group.isActive
+    }
+
+    var hasActivitySample: Bool {
+        guard case .process(let group) = self else { return false }
+        return group.hasActivitySample
+    }
+
+    var cpuPercent: Double? {
+        guard case .process(let group) = self, group.hasActivitySample else { return nil }
+        return group.cpuPercent
+    }
 }
 
 /// Outcome of one manual "close background apps" sweep.
 struct BackgroundCleanupResult: Equatable {
     let date: Date
-    /// Apps confirmed gone after the sweep.
+    /// Items confirmed gone after the sweep.
     let quitCount: Int
-    /// Apps that ignored the quit request and are still running.
+    /// Items that ignored the request and are still running.
     let stubbornCount: Int
+    /// Items left alone because they were busy with real work.
+    let skippedActiveCount: Int
     let keptCount: Int
 
     var totalToClose: Int { quitCount + stubbornCount }
@@ -162,6 +180,11 @@ final class AppState: ObservableObject {
     @Published var lastBackgroundCleanup: BackgroundCleanupResult?
     /// True while a sweep waits for the apps to exit.
     @Published var isBackgroundSweepInFlight = false
+    /// Skip items that are busy with real work instead of stopping them.
+    /// Off by default: the original behaviour stops everything blacklisted.
+    @Published var skipActiveBackgroundItems: Bool = false {
+        didSet { UserDefaults.standard.set(skipActiveBackgroundItems, forKey: "skipActiveBackgroundItems") }
+    }
     @Published var idleMinutes: Double = 60 {
         didSet { UserDefaults.standard.set(idleMinutes, forKey: "idleMinutes"); rebuildTimers() }
     }
@@ -305,6 +328,7 @@ final class AppState: ObservableObject {
         customThresholds = UserDefaults.standard.dictionary(forKey: "customThresholds") as? [String: Double] ?? [:]
         gracePeriod = UserDefaults.standard.object(forKey: "gracePeriod") as? Double ?? 10
         skipAudioApps = UserDefaults.standard.object(forKey: "skipAudioApps") as? Bool ?? true
+        skipActiveBackgroundItems = UserDefaults.standard.object(forKey: "skipActiveBackgroundItems") as? Bool ?? false
         launchAtLogin = LaunchAtLoginManager.shared.isEnabled
         history = Self.loadHistory()
 
@@ -416,17 +440,23 @@ final class AppState: ObservableObject {
     ///
     /// Background items never participate in the idle countdown, so this is the
     /// only path that closes them. Everything not on the blacklist is left alone.
+    /// With `skipActiveBackgroundItems` on, items that are visibly working are
+    /// reported as skipped instead of being stopped.
     /// Progress and the final tally are published through
     /// `isBackgroundSweepInFlight` and `lastBackgroundCleanup`.
     func closeBlacklistedBackgroundApps() {
         let targets = blacklistedBackgroundItems
         guard !targets.isEmpty else {
             lastBackgroundCleanup = BackgroundCleanupResult(
-                date: Date(), quitCount: 0, stubbornCount: 0, keptCount: keptBackgroundItems.count
+                date: Date(), quitCount: 0, stubbornCount: 0,
+                skippedActiveCount: 0, keptCount: keptBackgroundItems.count
             )
             return
         }
 
+        let skipped = skipActiveBackgroundItems ? targets.filter(\.isActive) : []
+        let skippedIDs = Set(skipped.map(\.id))
+        let toStop = targets.filter { !skippedIDs.contains($0.id) }
         let kept = keptBackgroundItems.count
         isBackgroundSweepInFlight = true
 
@@ -434,7 +464,7 @@ final class AppState: ObservableObject {
             var quitCount = 0
             var stubbornCount = 0
 
-            for item in targets {
+            for item in toStop {
                 guard let self else { return }
                 let stopped: Bool
                 switch item {
@@ -454,9 +484,12 @@ final class AppState: ObservableObject {
             guard let self else { return }
             self.isBackgroundSweepInFlight = false
             self.lastBackgroundCleanup = BackgroundCleanupResult(
-                date: Date(), quitCount: quitCount, stubbornCount: stubbornCount, keptCount: kept
+                date: Date(), quitCount: quitCount, stubbornCount: stubbornCount,
+                skippedActiveCount: skipped.count, keptCount: kept
             )
-            self.logger.debug("Background sweep stopped \(quitCount) item(s), \(stubbornCount) still running")
+            self.logger.debug(
+                "Background sweep stopped \(quitCount), \(stubbornCount) still running, \(skipped.count) skipped as active"
+            )
         }
     }
 
