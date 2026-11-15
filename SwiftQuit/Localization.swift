@@ -40,7 +40,16 @@ struct Strings: Sendable {
     var closeWindows: String { pick("Close", "关闭") }
     var closeWindowsHint: String { pick("Close all Finder windows", "关闭访达的所有窗口") }
     var quitting: String { pick("Quitting…", "正在退出…") }
+    var notResponding: String { pick("Not responding", "未响应") }
+    var forceQuit: String { pick("Force Quit", "强制退出") }
+    var forceQuitHint: String {
+        pick(
+            "Quit without letting the app save. Unsaved changes are lost.",
+            "不等待应用保存，直接结束进程。未保存的修改会丢失。"
+        )
+    }
     var includeInAutoQuit: String { pick("Include in auto-quit", "参与自动退出") }
+    var excludeFromAutoQuit: String { pick("Exclude from auto-quit", "不参与自动退出") }
     var includeInAutoQuitHint: String { pick("Uncheck to keep this app running", "取消勾选可让该应用保持运行") }
 
     // MARK: - Pause

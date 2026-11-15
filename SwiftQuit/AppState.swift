@@ -149,6 +149,9 @@ final class AppState: ObservableObject {
 
     /// How long to wait before retrying a quit request that an app appears to have ignored.
     private static let quitRetryInterval: TimeInterval = 30
+    /// After this long without the app exiting, it is treated as unresponsive so
+    /// the UI can offer a force quit instead of spinning forever.
+    private static let unresponsiveTimeout: TimeInterval = 8
     private static let historyLimit = 100
     /// The countdown timer fires once a second. A longer pause means the process
     /// was suspended (typically system sleep), not that time passed normally.
@@ -238,6 +241,9 @@ final class AppState: ObservableObject {
     @Published var remainingSeconds: [String: Double] = [:]
     /// Apps that are inside the pre-quit grace period.
     @Published var pendingQuits: Set<String> = []
+    /// Apps that were asked to quit but are still running, so the UI can offer a
+    /// force quit instead of spinning forever.
+    @Published var unresponsiveApps: Set<String> = []
     @Published var pauseRemaining: TimeInterval = 0
 
     /// User-facing strings for the selected language.
@@ -431,6 +437,19 @@ final class AppState: ObservableObject {
     func keepRunning(bundleID: String) {
         lastActiveDates[bundleID] = Date()
         cancelPendingQuit(bundleID)
+    }
+
+    /// Force quits an app immediately. Used when a normal quit request was
+    /// ignored, or from the row's context menu.
+    func forceQuitNow(_ app: AppInfo) {
+        cancelPendingQuit(app.bundleID)
+        let handled = quitManager.forceQuit(app)
+        quitRequests[app.bundleID] = Date()
+        unresponsiveApps.remove(app.bundleID)
+        if handled {
+            record(app, reason: .manual)
+            logger.debug("Force quit \(app.name, privacy: .public)")
+        }
     }
 
     // MARK: - Background sweep
@@ -730,10 +749,11 @@ final class AppState: ObservableObject {
         // Restarting the timer deliberately is not the same as the process being
         // suspended, so the next tick must not treat the gap as sleep.
         lastTickDate = nil
-        guard isAutoQuitEnabled else {
+        if !isAutoQuitEnabled {
             remainingSeconds = [:]
-            return
         }
+        // The timer also watches for ignored quit requests, which matters even
+        // with auto quit off (manual quits can be ignored too), so it always runs.
         tickTimer = Timer.scheduledTimer(withTimeInterval: Self.tickInterval, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
         }
@@ -765,6 +785,14 @@ final class AppState: ObservableObject {
             resumePause()
         }
         pauseRemaining = 0
+
+        // With auto quit off the countdown does not run, but an ignored manual
+        // quit must still surface so the user can force it.
+        if !isAutoQuitEnabled {
+            remainingSeconds = [:]
+            updateUnresponsiveApps(now: now)
+            return
+        }
 
         if skipAudioApps, now.timeIntervalSince(lastAudioRefresh) >= 2 {
             audioBundleIDs = audioMonitor.activeBundleIDs()
@@ -856,7 +884,18 @@ final class AppState: ObservableObject {
         pendingQuits = stillPending
         lastActiveDates = lastActiveDates.filter { runningBundleIDs.contains($0.key) }
         quitRequests = quitRequests.filter { runningBundleIDs.contains($0.key) }
+        updateUnresponsiveApps(now: now)
         remainingSeconds = updated
+    }
+
+    /// An app that is still alive a while after being asked to quit is not going
+    /// to close on its own; expose that so the user can force it.
+    private func updateUnresponsiveApps(now: Date) {
+        let running = Set(runningApps.map(\.bundleID))
+        unresponsiveApps = Set(quitRequests.compactMap { bundleID, requestedAt in
+            guard running.contains(bundleID) else { return nil }
+            return now.timeIntervalSince(requestedAt) >= Self.unresponsiveTimeout ? bundleID : nil
+        })
     }
 
     private func reason(for app: AppInfo) -> QuitReason {

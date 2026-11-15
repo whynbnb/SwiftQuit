@@ -291,7 +291,18 @@ struct AppRow: View {
         state.pendingQuits.contains(app.bundleID)
     }
 
+    private var isUnresponsive: Bool {
+        state.unresponsiveApps.contains(app.bundleID)
+    }
+
+    private var showsForceQuit: Bool {
+        isUnresponsive && !isFinder
+    }
+
     private var remainingText: String? {
+        if isUnresponsive {
+            return strings.notResponding
+        }
         guard state.isAutoQuitEnabled else { return nil }
         if isExcluded { return nil }
         if isForeground { return nil }
@@ -334,15 +345,19 @@ struct AppRow: View {
             if let text = remainingText {
                 Text(text)
                     .font(.system(size: 12, weight: .medium, design: .monospaced))
-                    .foregroundColor(isQuitting || (state.remainingSeconds[app.bundleID] ?? 1) <= 0 ? .red : .orange)
+                    .foregroundColor(isUnresponsive ? .orange : (isQuitting || (state.remainingSeconds[app.bundleID] ?? 1) <= 0 ? .red : .orange))
             }
             Spacer()
-            Button(isFinder ? strings.closeWindows : strings.quit) {
-                state.quitNow(app)
+            Button(showsForceQuit ? strings.forceQuit : (isFinder ? strings.closeWindows : strings.quit)) {
+                if showsForceQuit {
+                    state.forceQuitNow(app)
+                } else {
+                    state.quitNow(app)
+                }
             }
             .buttonStyle(.plain)
             .font(.system(size: 13))
-            .foregroundColor(isQuitHovered ? .red : .secondary)
+            .foregroundColor(isQuitHovered ? .red : (showsForceQuit ? .orange : .secondary))
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
             .background(
@@ -350,12 +365,30 @@ struct AppRow: View {
                     .fill(isQuitHovered ? Color.red.opacity(0.1) : Color.clear)
             )
             .overlay(HoverObserver(isHovered: $isQuitHovered).allowsHitTesting(false))
-            .frame(width: 54, alignment: .trailing)
-            .help(isFinder ? strings.closeWindowsHint : strings.quitHint)
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
+            .frame(minWidth: 54, alignment: .trailing)
+            .help(showsForceQuit ? strings.forceQuitHint : (isFinder ? strings.closeWindowsHint : strings.quitHint))
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 5)
         .background(isForeground ? Color.accentColor.opacity(0.08) : Color.clear)
+        .contextMenu {
+            if !isFinder {
+                Button(strings.quit) { state.quitNow(app) }
+                Button(strings.forceQuit) { state.forceQuitNow(app) }
+            } else {
+                Button(strings.closeWindows) { state.quitNow(app) }
+            }
+            Divider()
+            Button(isExcluded ? strings.includeInAutoQuit : strings.excludeFromAutoQuit) {
+                if isExcluded {
+                    state.excludedBundleIDs.remove(app.bundleID)
+                } else {
+                    state.excludedBundleIDs.insert(app.bundleID)
+                }
+            }
+        }
         .onDisappear {
             isQuitHovered = false
         }
