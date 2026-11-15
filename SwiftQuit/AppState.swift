@@ -609,10 +609,6 @@ final class AppState: ObservableObject {
 
     // MARK: - Background blacklist
 
-    func toggleBackgroundBlacklist(_ target: BackgroundTarget) {
-        setBackgroundBlacklisted(!isBackgroundBlacklisted(target), target: target)
-    }
-
     func isBackgroundBlacklisted(_ target: BackgroundTarget) -> Bool {
         backgroundBlacklist.contains { $0.target == target }
     }

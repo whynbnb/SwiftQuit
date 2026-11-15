@@ -119,13 +119,12 @@ struct BackgroundSettingsView: View {
                     Section {
                         ForEach(state.ancestorProcesses) { group in
                             BackgroundToggleRow(
+                                target: .process(path: group.id),
                                 name: group.name,
                                 icon: nil,
                                 detail: group.displayPath,
                                 strings: strings,
-                                isBlacklisted: false,
-                                isExcluded: true,
-                                onToggle: {}
+                                isExcluded: true
                             )
                         }
                     } header: {
@@ -141,13 +140,12 @@ struct BackgroundSettingsView: View {
 
     private func runningRow(for item: BackgroundItem) -> some View {
         BackgroundToggleRow(
+            target: item.target,
             name: item.name,
             icon: item.icon,
             detail: item.detail,
             strings: strings,
-            isBlacklisted: state.isBackgroundBlacklisted(item.target),
-            activity: activity(for: item),
-            onToggle: { state.toggleBackgroundBlacklist(item.target) }
+            activity: activity(for: item)
         )
     }
 
@@ -165,13 +163,12 @@ struct BackgroundSettingsView: View {
     /// stopped again the next time it appears; the switch takes it off.
     private func dormantRow(for entry: BackgroundEntry) -> some View {
         BackgroundToggleRow(
+            target: entry.target,
             name: entry.name,
             icon: nil,
             detail: detail(for: entry),
             strings: strings,
-            isBlacklisted: true,
-            isDormant: true,
-            onToggle: { state.setBackgroundBlacklisted(false, target: entry.target) }
+            isDormant: true
         )
     }
 
@@ -221,12 +218,14 @@ enum BackgroundActivity {
 
 /// One row of the background tab: the switch means "stop this during a sweep".
 struct BackgroundToggleRow: View {
+    @EnvironmentObject private var state: AppState
+
+    let target: BackgroundTarget
     let name: String
     let icon: NSImage?
     /// Executable path for CLI processes, or nil for menu bar apps.
     let detail: String?
     let strings: Strings
-    let isBlacklisted: Bool
     /// CPU activity for CLI processes; nil for menu bar apps and unsampled ones.
     var activity: BackgroundActivity?
     /// Rendered but not controllable, with an explanation in the section footer.
@@ -234,9 +233,19 @@ struct BackgroundToggleRow: View {
     /// Not running right now; the switch removes it from the list instead of
     /// adding it, so the row reads differently.
     var isDormant: Bool = false
-    let onToggle: () -> Void
 
     @State private var isHovered = false
+
+    /// Read live state, not a snapshot taken when the row was built: `@Published`
+    /// notifies before the value changes, so a captured copy renders one step
+    /// behind and makes the switch jump back.
+    private var isBlacklisted: Bool {
+        state.isBackgroundBlacklisted(target)
+    }
+
+    private func apply(_ isOn: Bool) {
+        state.setBackgroundBlacklisted(isOn, target: target)
+    }
 
     private var activityLabel: String {
         switch activity {
@@ -302,11 +311,11 @@ struct BackgroundToggleRow: View {
                 Spacer(minLength: 0)
             }
             .contentShape(Rectangle())
-            .onTapGesture { if !isExcluded { onToggle() } }
+            .onTapGesture { if !isExcluded { apply(!isBlacklisted) } }
 
             Toggle("", isOn: Binding(
                 get: { isBlacklisted },
-                set: { _ in onToggle() }
+                set: { apply($0) }
             ))
             .toggleStyle(.switch)
             .controlSize(.small)
