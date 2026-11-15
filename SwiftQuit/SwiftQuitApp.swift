@@ -39,6 +39,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self?.showSettings()
         }
 
+        state.openSettingsTabAction = { [weak self] tab in
+            self?.showSettings(tab: tab)
+        }
+
         state.$pausedUntil
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
@@ -183,6 +187,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         menu.addItem(.separator())
+        let closeBackground = menuItem(strings.closeBackgroundApps, action: #selector(menuCloseBackgroundApps))
+        closeBackground.isEnabled = !state.blacklistedBackgroundItems.isEmpty
+        menu.addItem(closeBackground)
+        menu.addItem(.separator())
         menu.addItem(menuItem(strings.settings, action: #selector(menuOpenSettings)))
         menu.addItem(.separator())
         menu.addItem(menuItem(strings.quitApp, action: #selector(menuQuitApp)))
@@ -212,6 +220,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         showSettings()
     }
 
+    @objc private func menuCloseBackgroundApps() {
+        state.closeBlacklistedBackgroundApps()
+    }
+
     @objc private func menuQuitApp() {
         NSApplication.shared.terminate(nil)
     }
@@ -219,12 +231,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Settings window
 
     func showSettings() {
+        showSettings(tab: nil)
+    }
+
+    func showSettings(tab: SettingsTab?) {
         NSApp.activate(ignoringOtherApps: true)
 
         if settingsWindowController == nil {
             createSettingsWindow()
         }
         localizeSettings()
+        if let tab, let controller = settingsTabController,
+           tab.rawValue < controller.tabViewItems.count {
+            controller.selectedTabViewItemIndex = tab.rawValue
+        }
         settingsWindowController?.showWindow(nil)
         settingsWindowController?.window?.makeKeyAndOrderFront(nil)
     }
@@ -251,8 +271,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         history.label = state.strings.historyTab
         history.image = NSImage(systemSymbolName: "clock.arrow.circlepath", accessibilityDescription: nil)
 
+        let backgroundHosting = NSHostingController(rootView: BackgroundSettingsView().environmentObject(state))
+        backgroundHosting.title = state.strings.settingsTitle
+        let background = NSTabViewItem(viewController: backgroundHosting)
+        background.label = state.strings.backgroundTab
+        background.image = NSImage(systemSymbolName: "menubar.rectangle", accessibilityDescription: nil)
+
         tabController.addTabViewItem(general)
         tabController.addTabViewItem(apps)
+        tabController.addTabViewItem(background)
         tabController.addTabViewItem(history)
         settingsTabController = tabController
 
@@ -271,8 +298,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func localizeSettings() {
         settingsWindowController?.window?.title = state.strings.settingsTitle
 
-        guard let items = settingsTabController?.tabViewItems, items.count == 3 else { return }
-        for (index, label) in [state.strings.general, state.strings.appsTab, state.strings.historyTab].enumerated() {
+        guard let items = settingsTabController?.tabViewItems, items.count == 4 else { return }
+        let labels = [
+            state.strings.general,
+            state.strings.appsTab,
+            state.strings.backgroundTab,
+            state.strings.historyTab,
+        ]
+        for (index, label) in labels.enumerated() {
             items[index].label = label
             items[index].viewController?.title = state.strings.settingsTitle
         }

@@ -20,6 +20,8 @@
 		A10011 /* AudioActivityMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10013; };
 		A10012 /* QuitNotifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10014; };
 		A10013 /* HistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10015; };
+		A10014 /* BackgroundView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10016; };
+		A10015 /* BackgroundProcess.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10017; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -39,6 +41,8 @@
 		B10013 /* AudioActivityMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioActivityMonitor.swift; sourceTree = "<group>"; };
 		B10014 /* QuitNotifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuitNotifier.swift; sourceTree = "<group>"; };
 		B10015 /* HistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryView.swift; sourceTree = "<group>"; };
+		B10016 /* BackgroundView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundView.swift; sourceTree = "<group>"; };
+		B10017 /* BackgroundProcess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundProcess.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -75,6 +79,8 @@
 				B10013 /* AudioActivityMonitor.swift */,
 				B10014 /* QuitNotifier.swift */,
 				B10015 /* HistoryView.swift */,
+				B10016 /* BackgroundView.swift */,
+				B10017 /* BackgroundProcess.swift */,
 				B10009 /* AppIcon.icns */,
 				B10007 /* Info.plist */,
 				B10008 /* SwiftQuit.entitlements */,
@@ -171,6 +177,8 @@
 				A10011 /* AudioActivityMonitor.swift in Sources */,
 				A10012 /* QuitNotifier.swift in Sources */,
 				A10013 /* HistoryView.swift in Sources */,
+				A10014 /* BackgroundView.swift in Sources */,
+				A10015 /* BackgroundProcess.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -6,6 +6,8 @@ enum QuitReason: String, Codable, Sendable {
     case idle
     case manual
     case windows
+    /// Quit by the manual "close background apps" sweep.
+    case background
 }
 
 struct QuitEvent: Identifiable, Codable, Sendable {
@@ -24,6 +26,105 @@ struct NextQuit {
     let remaining: TimeInterval
 }
 
+/// Settings tabs, so callers can jump to a specific pane.
+enum SettingsTab: Int, Sendable {
+    case general
+    case apps
+    case background
+    case history
+}
+
+/// Identifies one entry in the background clean-up list.
+///
+/// The list holds two quite different things: menu bar agents, which are GUI
+/// apps and can be reached through `NSRunningApplication`, and command line
+/// processes (`herdr`, `opencode`, a Java daemon), which only exist in the BSD
+/// process table. Each is keyed by what actually identifies it.
+enum BackgroundTarget: Hashable, Codable, Sendable {
+    /// A menu bar app, keyed by bundle ID.
+    case app(bundleID: String)
+    /// A CLI process or daemon, keyed by its executable path.
+    case process(path: String)
+}
+
+/// One row of the background list, saved so the entry survives the app quitting.
+struct BackgroundEntry: Codable, Hashable, Identifiable {
+    let target: BackgroundTarget
+    let name: String
+
+    var id: String {
+        switch target {
+        case .app(let bundleID): return "app:" + bundleID
+        case .process(let path): return "process:" + path
+        }
+    }
+}
+
+/// One row of the background clean-up list, ready to render.
+enum BackgroundItem: Identifiable, Hashable {
+    /// A menu bar app that can be quit through NSRunningApplication.
+    case app(AppInfo)
+    /// A CLI process group keyed by executable path.
+    case process(BackgroundProcess)
+
+    var id: String {
+        switch self {
+        case .app(let app): return "app:" + app.bundleID
+        case .process(let group): return "process:" + group.id
+        }
+    }
+
+    var name: String {
+        switch self {
+        case .app(let app): return app.name
+        case .process(let group): return group.name
+        }
+    }
+
+    var icon: NSImage? {
+        switch self {
+        case .app(let app): return app.icon
+        case .process: return nil
+        }
+    }
+
+    var target: BackgroundTarget {
+        switch self {
+        case .app(let app): return .app(bundleID: app.bundleID)
+        case .process(let group): return .process(path: group.id)
+        }
+    }
+
+    /// Extra detail shown under the name: the executable path for CLI processes,
+    /// "N processes" when a tool runs several instances.
+    var detail: String? {
+        switch self {
+        case .app: return nil
+        case .process(let group):
+            if group.processCount > 1 { return "\(group.displayPath) · \(group.processCount)" }
+            return group.displayPath
+        }
+    }
+
+    /// Compact count shown in the popover, e.g. "×3" for a tool with 3 processes.
+    var processCountLabel: String? {
+        guard case .process(let group) = self, group.processCount > 1 else { return nil }
+        return "×\(group.processCount)"
+    }
+}
+
+/// Outcome of one manual "close background apps" sweep.
+struct BackgroundCleanupResult: Equatable {
+    let date: Date
+    /// Apps confirmed gone after the sweep.
+    let quitCount: Int
+    /// Apps that ignored the quit request and are still running.
+    let stubbornCount: Int
+    let keptCount: Int
+
+    var totalToClose: Int { quitCount + stubbornCount }
+}
+
 @MainActor
 final class AppState: ObservableObject {
     static let shared = AppState()
@@ -33,9 +134,30 @@ final class AppState: ObservableObject {
     private static let historyLimit = 100
 
     @Published var runningApps: [AppInfo] = []
+    /// Menu bar apps: GUI agents that can be reached through NSRunningApplication.
+    @Published var backgroundApps: [AppInfo] = [] {
+        didSet { resolveBackgroundNames() }
+    }
+    /// Command line processes and daemons, which have no NSRunningApplication.
+    @Published var backgroundProcesses: [BackgroundProcess] = [] {
+        didSet { resolveBackgroundNames() }
+    }
+    /// CLI processes skipped because SwiftQuit is currently running inside them.
+    @Published var ancestorProcesses: [BackgroundProcess] = []
     @Published var excludedBundleIDs: Set<String> = [] {
         didSet { saveExcluded(); rebuildTimers() }
     }
+    /// Background apps that the manual sweep should quit. Everything else is kept.
+    @Published var backgroundBlacklist: [BackgroundEntry] = [] {
+        didSet {
+            saveBackgroundBlacklist()
+            resolveBackgroundNames()
+        }
+    }
+    /// Result of the most recent manual background sweep, for inline feedback.
+    @Published var lastBackgroundCleanup: BackgroundCleanupResult?
+    /// True while a sweep waits for the apps to exit.
+    @Published var isBackgroundSweepInFlight = false
     @Published var idleMinutes: Double = 60 {
         didSet { UserDefaults.standard.set(idleMinutes, forKey: "idleMinutes"); rebuildTimers() }
     }
@@ -100,6 +222,33 @@ final class AppState: ObservableObject {
         return runningApps.filter { $0.bundleID != SystemApps.finderBundleID }
     }
 
+    // MARK: - Background list
+
+    /// Every background item the sweep can act on, menu bar apps and CLI
+    /// processes alike, as one uniform list.
+    var backgroundItems: [BackgroundItem] {
+        backgroundApps.map(BackgroundItem.app) + backgroundProcesses.map(BackgroundItem.process)
+    }
+
+    /// Items that are running right now and are not blacklisted.
+    var keptBackgroundItems: [BackgroundItem] {
+        backgroundItems.filter { !isBackgroundBlacklisted($0.target) }
+    }
+
+    /// Items the sweep would stop right now.
+    var blacklistedBackgroundItems: [BackgroundItem] {
+        backgroundItems.filter { isBackgroundBlacklisted($0.target) }
+    }
+
+    /// Number of distinct background items currently running.
+    var runningBackgroundCount: Int { backgroundItems.count }
+
+    /// Blacklisted entries whose process is not running (or whose app is closed).
+    var dormantBlacklistedEntries: [BackgroundEntry] {
+        let running = Set(backgroundItems.map(\.target))
+        return backgroundBlacklist.filter { !running.contains($0.target) }
+    }
+
     var isPaused: Bool { pausedUntil != nil }
 
     /// The managed app closest to being quit, if any.
@@ -118,6 +267,8 @@ final class AppState: ObservableObject {
 
     /// Set by the app delegate so SwiftUI views can open the settings window.
     var openSettingsAction: (() -> Void)?
+    /// Opens the settings window on a specific tab.
+    var openSettingsTabAction: ((SettingsTab) -> Void)?
 
     private let logger = Logger(subsystem: "com.swiftquit.SwiftQuit", category: "AppState")
     private let notifier = QuitNotifier()
@@ -132,11 +283,13 @@ final class AppState: ObservableObject {
     private var pauseStartedAt: Date?
     private var audioBundleIDs: Set<String> = []
     private var lastAudioRefresh: Date = .distantPast
+    private var isResolvingBackgroundNames = false
 
     private init() {
         idleMinutes = UserDefaults.standard.object(forKey: "idleMinutes") as? Double ?? 60
         isAutoQuitEnabled = UserDefaults.standard.object(forKey: "isAutoQuitEnabled") as? Bool ?? true
         excludedBundleIDs = Set(UserDefaults.standard.stringArray(forKey: "excludedBundleIDs") ?? [])
+        backgroundBlacklist = Self.loadBackgroundBlacklist()
         language = AppLanguage(rawValue: UserDefaults.standard.string(forKey: "appLanguage") ?? "") ?? .system
         showFinder = UserDefaults.standard.object(forKey: "showFinder") as? Bool ?? true
         customThresholds = UserDefaults.standard.dictionary(forKey: "customThresholds") as? [String: Double] ?? [:]
@@ -158,8 +311,11 @@ final class AppState: ObservableObject {
             }
         }
 
-        monitor = AppMonitor { @MainActor [weak self] apps, fg in
+        monitor = AppMonitor { @MainActor [weak self] apps, background, processes, ancestors, fg in
             self?.runningApps = apps
+            self?.backgroundApps = background
+            self?.backgroundProcesses = processes
+            self?.ancestorProcesses = ancestors
             self?.foregroundBundleID = fg
         }
         quitManager = QuitManager()
@@ -175,6 +331,10 @@ final class AppState: ObservableObject {
 
     func openSettings() {
         openSettingsAction?()
+    }
+
+    func openSettings(_ tab: SettingsTab) {
+        openSettingsTabAction?(tab)
     }
 
     func quitNow(_ app: AppInfo) {
@@ -194,6 +354,158 @@ final class AppState: ObservableObject {
     func keepRunning(bundleID: String) {
         lastActiveDates[bundleID] = Date()
         cancelPendingQuit(bundleID)
+    }
+
+    // MARK: - Background sweep
+
+    /// Stops every blacklisted background item in one go: menu bar apps are asked
+    /// to quit, CLI processes get SIGTERM then SIGKILL.
+    ///
+    /// Background items never participate in the idle countdown, so this is the
+    /// only path that closes them. Everything not on the blacklist is left alone.
+    /// Progress and the final tally are published through
+    /// `isBackgroundSweepInFlight` and `lastBackgroundCleanup`.
+    func closeBlacklistedBackgroundApps() {
+        let targets = blacklistedBackgroundItems
+        guard !targets.isEmpty else {
+            lastBackgroundCleanup = BackgroundCleanupResult(
+                date: Date(), quitCount: 0, stubbornCount: 0, keptCount: keptBackgroundItems.count
+            )
+            return
+        }
+
+        let kept = keptBackgroundItems.count
+        isBackgroundSweepInFlight = true
+
+        Task { @MainActor [weak self] in
+            var quitCount = 0
+            var stubbornCount = 0
+
+            for item in targets {
+                guard let self else { return }
+                let stopped: Bool
+                switch item {
+                case .app(let app):
+                    stopped = await self.stopApp(app)
+                case .process(let group):
+                    stopped = await ProcessScanner.terminate(group)
+                }
+                if stopped {
+                    quitCount += 1
+                    self.record(item, reason: .background)
+                } else {
+                    stubbornCount += 1
+                }
+            }
+
+            guard let self else { return }
+            self.isBackgroundSweepInFlight = false
+            self.lastBackgroundCleanup = BackgroundCleanupResult(
+                date: Date(), quitCount: quitCount, stubbornCount: stubbornCount, keptCount: kept
+            )
+            self.logger.debug("Background sweep stopped \(quitCount) item(s), \(stubbornCount) still running")
+        }
+    }
+
+    /// Asks a menu bar app to quit, then force quits it if it ignores the request.
+    private func stopApp(_ app: AppInfo) async -> Bool {
+        guard let running = QuitManager.runningApplication(for: app.bundleID) else {
+            return true
+        }
+        quitManager.quit(app)
+
+        let deadline = Date().addingTimeInterval(3)
+        while Date() < deadline {
+            if running.isTerminated { return true }
+            try? await Task.sleep(for: .milliseconds(150))
+        }
+
+        quitManager.forceQuit(app)
+        let forceDeadline = Date().addingTimeInterval(2)
+        while Date() < forceDeadline {
+            if running.isTerminated { return true }
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        return running.isTerminated
+    }
+
+    // MARK: - Background blacklist
+
+    func toggleBackgroundBlacklist(_ target: BackgroundTarget) {
+        setBackgroundBlacklisted(!isBackgroundBlacklisted(target), target: target)
+    }
+
+    func isBackgroundBlacklisted(_ target: BackgroundTarget) -> Bool {
+        backgroundBlacklist.contains { $0.target == target }
+    }
+
+    func setBackgroundBlacklisted(_ isBlacklisted: Bool, target: BackgroundTarget) {
+        let name = backgroundItems.first { $0.target == target }?.name
+            ?? backgroundBlacklist.first { $0.target == target }?.name
+            ?? Self.fallbackName(for: target)
+        if isBlacklisted {
+            guard !isBackgroundBlacklisted(target) else { return }
+            backgroundBlacklist.append(BackgroundEntry(target: target, name: name))
+        } else {
+            backgroundBlacklist.removeAll { $0.target == target }
+        }
+    }
+
+    private static func fallbackName(for target: BackgroundTarget) -> String {
+        switch target {
+        case .app(let bundleID): return bundleID
+        case .process(let path): return (path as NSString).lastPathComponent
+        }
+    }
+
+    /// Fills in real names for entries saved before the name was known, so the
+    /// "not running" section does not show raw bundle IDs or paths.
+    private func resolveBackgroundNames() {
+        // Writing to `backgroundBlacklist` re-enters this through its observer.
+        guard !isResolvingBackgroundNames else { return }
+        isResolvingBackgroundNames = true
+        defer { isResolvingBackgroundNames = false }
+
+        let names = Dictionary(
+            backgroundItems.map { ($0.target, $0.name) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        var updated = backgroundBlacklist
+        for (index, entry) in updated.enumerated() {
+            guard entry.name == Self.fallbackName(for: entry.target) else { continue }
+            guard let name = names[entry.target] else { continue }
+            updated[index] = BackgroundEntry(target: entry.target, name: name)
+        }
+        if updated != backgroundBlacklist {
+            backgroundBlacklist = updated
+        }
+    }
+
+    private func saveBackgroundBlacklist() {
+        guard let data = try? JSONEncoder().encode(backgroundBlacklist) else { return }
+        UserDefaults.standard.set(data, forKey: "backgroundBlacklist")
+    }
+
+    private static func loadBackgroundBlacklist() -> [BackgroundEntry] {
+        guard let data = UserDefaults.standard.data(forKey: "backgroundBlacklist") else {
+            return []
+        }
+        // The intermediate build stored entries with a bare `bundleID`, before
+        // CLI processes were supported. Decode those instead of dropping them.
+        if let entries = try? JSONDecoder().decode([BackgroundEntry].self, from: data) {
+            return entries
+        }
+        if let legacy = try? JSONDecoder().decode([LegacyBackgroundEntry].self, from: data) {
+            return legacy.map {
+                BackgroundEntry(target: .app(bundleID: $0.bundleID), name: $0.name)
+            }
+        }
+        return []
+    }
+
+    private struct LegacyBackgroundEntry: Codable {
+        let bundleID: String
+        let name: String
     }
 
     func startMonitoring() {
@@ -275,8 +587,21 @@ final class AppState: ObservableObject {
     }
 
     private func record(_ app: AppInfo, reason: QuitReason) {
+        recordQuit(name: app.name, bundleID: app.bundleID, reason: reason)
+    }
+
+    private func record(_ item: BackgroundItem, reason: QuitReason) {
+        switch item {
+        case .app(let app):
+            recordQuit(name: app.name, bundleID: app.bundleID, reason: reason)
+        case .process(let group):
+            recordQuit(name: group.name, bundleID: group.displayPath, reason: reason)
+        }
+    }
+
+    private func recordQuit(name: String, bundleID: String, reason: QuitReason) {
         history.insert(
-            QuitEvent(date: Date(), appName: app.name, bundleID: app.bundleID, reason: reason),
+            QuitEvent(date: Date(), appName: name, bundleID: bundleID, reason: reason),
             at: 0
         )
         if history.count > Self.historyLimit {

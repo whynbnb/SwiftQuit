@@ -143,7 +143,86 @@ struct Strings: Sendable {
         case .idle: return pick("Idle", "空闲")
         case .manual: return pick("Manual", "手动")
         case .windows: return pick("Windows", "关闭窗口")
+        case .background: return pick("Background", "后台清理")
         }
+    }
+
+    // MARK: - Background items
+
+    var backgroundTab: String { pick("Background", "后台") }
+    var backgroundSection: String { pick("Background", "后台") }
+    var closeBackgroundApps: String { pick("Close Background Items", "关闭后台项目") }
+    var closeBackgroundAppsHint: String {
+        pick(
+            "Stop every blacklisted background item now; whitelisted ones keep running.",
+            "立即关闭黑名单里的所有后台项目，白名单内的保持运行。"
+        )
+    }
+    var backgroundDescription: String {
+        pick(
+            "Menu bar agents, command line tools and daemons never follow the idle countdown. Turn an item on to blacklist it, then use the button to stop them all at once. Everything else keeps running.",
+            "菜单栏应用、命令行工具和守护进程都不参与空闲倒计时。打开某个项目即加入黑名单，然后点按钮一次性全部关闭；其余项目保持运行。"
+        )
+    }
+    var backgroundMenuBarSection: String { pick("Menu Bar Apps", "菜单栏应用") }
+    var backgroundProcessSection: String { pick("Command Line Processes", "命令行进程") }
+    var backgroundNotRunning: String { pick("Not running", "未运行") }
+    var backgroundAncestorSection: String { pick("Currently excluded", "当前排除") }
+    var backgroundAncestorStatus: String { pick("Launching SwiftQuit", "正在托管 SwiftQuit") }
+    var backgroundAncestorNote: String {
+        pick(
+            "SwiftQuit is running inside these processes, so stopping them would close the session that launched it. They are listed and stoppable again when SwiftQuit runs on its own.",
+            "SwiftQuit 目前运行在这些进程内部，关闭它们会连带关闭启动 SwiftQuit 的会话。单独运行 SwiftQuit 时，它们会正常列出并可清理。"
+        )
+    }
+    var backgroundEmpty: String { pick("No background items running", "没有正在运行的后台项目") }
+    var backgroundBlacklisted: String { pick("Blacklisted", "黑名单") }
+    var backgroundKept: String { pick("Kept running", "白名单，保留") }
+    var closeNow: String { pick("Close Now", "立即关闭") }
+    var removeFromList: String { pick("Remove", "移出") }
+    var removeFromListHint: String {
+        pick("Keep this item running during clean-up", "清理时保留该项目，不关闭")
+    }
+    var manageEllipsis: String { pick("Manage…", "管理…") }
+    var backgroundPopoverEmpty: String {
+        pick("Nothing blacklisted yet", "还没有加入黑名单的后台项目")
+    }
+
+    func backgroundAllClosed(count: Int) -> String {
+        pick(
+            "\(count) blacklisted item\(count == 1 ? "" : "s") not running",
+            "黑名单中的 \(count) 个项目当前未运行"
+        )
+    }
+    var backgroundIntro: String {
+        pick(
+            "Menu bar agents and command line processes are excluded from the idle countdown.",
+            "菜单栏应用与命令行进程都不参与上面的空闲倒计时。"
+        )
+    }
+
+    func backgroundSummary(blacklisted: Int, kept: Int) -> String {
+        pick(
+            "\(blacklisted) to close · \(kept) kept",
+            "黑名单 \(blacklisted) 个 · 保留 \(kept) 个"
+        )
+    }
+
+    func backgroundSweepResult(quit: Int, kept: Int) -> String {
+        if quit == 0 {
+            return pick("Nothing to close", "没有需要关闭的应用")
+        }
+        return pick(
+            "Closed \(quit) app\(quit == 1 ? "" : "s"), kept \(kept)",
+            "已关闭 \(quit) 个，保留 \(kept) 个"
+        )
+    }
+
+    func backgroundSweepWarning(stubborn: Int) -> String {
+        pick(
+            "\(stubborn) app\(stubborn == 1 ? "" : "s") did not quit",
+            "\(stubborn) 个应用未退出"
+        )
     }
 
     // MARK: - Notifications

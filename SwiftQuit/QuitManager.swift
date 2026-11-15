@@ -57,7 +57,12 @@ final class QuitManager {
         return true
     }
 
+    /// The running process for a bundle ID, if it is still alive.
+    static func runningApplication(for bundleID: String) -> NSRunningApplication? {
+        NSWorkspace.shared.runningApplications.first { $0.bundleIdentifier == bundleID }
+    }
+
     private func runningApplication(for app: AppInfo) -> NSRunningApplication? {
-        NSWorkspace.shared.runningApplications.first { $0.bundleIdentifier == app.bundleID }
+        Self.runningApplication(for: app.bundleID)
     }
 }

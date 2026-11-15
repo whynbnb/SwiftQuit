@@ -23,6 +23,11 @@ struct MenuBarView: View {
                     ForEach(state.displayedApps) { app in
                         AppRow(app: app)
                     }
+                    if state.runningBackgroundCount > 0 {
+                        backgroundSection
+                    } else if !state.backgroundBlacklist.isEmpty {
+                        dormantBackgroundSection
+                    }
                 }
                 .padding(.vertical, 4)
             }
@@ -68,6 +73,134 @@ struct MenuBarView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
+    }
+
+    private var backgroundSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Divider()
+                .padding(.vertical, 4)
+
+            HStack(spacing: 8) {
+                Image(systemName: "menubar.rectangle")
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+                Text(strings.backgroundSection)
+                    .font(.system(size: 12, weight: .medium))
+                Text(strings.backgroundSummary(
+                    blacklisted: state.blacklistedBackgroundItems.count,
+                    kept: state.keptBackgroundItems.count
+                ))
+                .font(.system(size: 11))
+                .foregroundColor(.secondary)
+                Spacer()
+                Button(strings.manageEllipsis) {
+                    state.openSettings(.background)
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 11))
+                .foregroundColor(.accentColor)
+            }
+            .padding(.horizontal, 14)
+
+            // Only the blacklisted items are listed here; the full list with the
+            // whitelist lives in Settings so the popover stays short. Menu bar
+            // apps and command line processes are separated by a small caption
+            // when both are present.
+            let blacklisted = state.blacklistedBackgroundItems
+            let menuBarItems = blacklisted.filter { if case .app = $0 { return true }; return false }
+            let processItems = blacklisted.filter { if case .process = $0 { return true }; return false }
+
+            if blacklisted.isEmpty {
+                Text(strings.backgroundPopoverEmpty)
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 14)
+                    .padding(.leading, 20)
+            } else if processItems.isEmpty {
+                ForEach(menuBarItems) { item in
+                    BackgroundRow(item: item)
+                }
+            } else if menuBarItems.isEmpty {
+                ForEach(processItems) { item in
+                    BackgroundRow(item: item)
+                }
+            } else {
+                popoverGroupLabel(strings.backgroundMenuBarSection)
+                ForEach(menuBarItems) { item in
+                    BackgroundRow(item: item)
+                }
+                popoverGroupLabel(strings.backgroundProcessSection)
+                ForEach(processItems) { item in
+                    BackgroundRow(item: item)
+                }
+            }
+
+            BackgroundSweepButton(
+                title: strings.closeBackgroundApps,
+                count: state.blacklistedBackgroundItems.count,
+                isBusy: state.isBackgroundSweepInFlight,
+                isEnabled: !state.blacklistedBackgroundItems.isEmpty && !state.isBackgroundSweepInFlight,
+                action: { state.closeBlacklistedBackgroundApps() }
+            )
+            .help(strings.closeBackgroundAppsHint)
+            .padding(.horizontal, 14)
+            .padding(.top, 2)
+
+            if let result = state.lastBackgroundCleanup {
+                HStack(spacing: 6) {
+                    Text(strings.backgroundSweepResult(quit: result.quitCount, kept: result.keptCount))
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                    if result.stubbornCount > 0 {
+                        Text(strings.backgroundSweepWarning(stubborn: result.stubbornCount))
+                            .font(.system(size: 11))
+                            .foregroundColor(.orange)
+                    }
+                }
+                .padding(.horizontal, 14)
+            }
+        }
+        .padding(.bottom, 4)
+    }
+
+    private func popoverGroupLabel(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 10, weight: .medium))
+            .foregroundColor(.secondary)
+            .padding(.horizontal, 14)
+            .padding(.leading, 20)
+            .padding(.top, 2)
+    }
+
+    /// Shown when every blacklisted app is currently closed, so the list does
+    /// not silently disappear from the popover.
+    private var dormantBackgroundSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Divider()
+                .padding(.vertical, 4)
+            HStack(spacing: 8) {
+                Image(systemName: "menubar.rectangle")
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+                Text(strings.backgroundSection)
+                    .font(.system(size: 12, weight: .medium))
+                Spacer()
+                Button(strings.manageEllipsis) {
+                    state.openSettings(.background)
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 11))
+                .foregroundColor(.accentColor)
+            }
+            .padding(.horizontal, 14)
+
+            Text(strings.backgroundAllClosed(count: state.backgroundBlacklist.count))
+                .font(.system(size: 11))
+                .foregroundColor(.secondary)
+                .padding(.horizontal, 14)
+                .padding(.leading, 20)
+        }
+        .padding(.bottom, 4)
     }
 
     private var pauseBanner: some View {
@@ -221,6 +354,101 @@ struct AppRow: View {
         .onDisappear {
             isQuitHovered = false
         }
+    }
+}
+
+/// Primary action of the background section. Drawn with a ZStack so the tinted
+/// background cannot inherit the label's foreground style (which would paint
+/// the pill solid and swallow the text).
+struct BackgroundSweepButton: View {
+    let title: String
+    let count: Int
+    let isBusy: Bool
+    let isEnabled: Bool
+    let action: () -> Void
+
+    @State private var isHovered = false
+
+    private var isEmphasized: Bool { isHovered && isEnabled }
+
+    var body: some View {
+        Button(action: action) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(Color.orange.opacity(isEmphasized ? 1 : 0.14))
+                HStack(spacing: 6) {
+                    if isBusy {
+                        ProgressView()
+                            .controlSize(.mini)
+                            .scaleEffect(0.7)
+                    } else {
+                        Image(systemName: "power")
+                            .font(.system(size: 10, weight: .semibold))
+                    }
+                    Text(title)
+                        .font(.system(size: 11, weight: .medium))
+                    if count > 0 {
+                        Text("\(count)")
+                            .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                            .foregroundColor(isEmphasized ? Color.white.opacity(0.9) : Color.orange)
+                    }
+                }
+                .foregroundColor(isEmphasized ? Color.white : Color.orange)
+                .padding(.vertical, 6)
+            }
+            .frame(maxWidth: .infinity)
+            .opacity(isEnabled ? 1 : 0.45)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!isEnabled)
+        .onHover { isHovered = $0 }
+    }
+}
+
+/// One background item row in the popover: blacklisted items only, with a way to
+/// take the item back off the list without opening Settings.
+struct BackgroundRow: View {
+    let item: BackgroundItem
+    @EnvironmentObject var state: AppState
+    @State private var isHovered = false
+
+    private var strings: Strings { state.strings }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            if let icon = item.icon {
+                Image(nsImage: icon)
+                    .resizable()
+                    .frame(width: 18, height: 18)
+            } else {
+                Image(systemName: "terminal")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(.secondary)
+                    .frame(width: 18, height: 18)
+            }
+            Text(item.name)
+                .lineLimit(1)
+                .font(.system(size: 13))
+            if let detail = item.processCountLabel {
+                Text(detail)
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+            }
+            Spacer()
+            Button(strings.removeFromList) {
+                state.setBackgroundBlacklisted(false, target: item.target)
+            }
+            .buttonStyle(.plain)
+            .font(.system(size: 11))
+            .foregroundColor(isHovered ? .orange : .secondary)
+            .help(strings.removeFromListHint)
+        }
+        .padding(.horizontal, 14)
+        .padding(.leading, 20)
+        .padding(.vertical, 3)
+        .background(isHovered ? Color.primary.opacity(0.05) : Color.clear)
+        .onHover { isHovered = $0 }
     }
 }
 
