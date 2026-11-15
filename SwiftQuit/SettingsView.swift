@@ -52,6 +52,33 @@ struct GeneralSettingsView: View {
             }
 
             Section {
+                Toggle(strings.quietHoursEnabled, isOn: $state.quietHoursEnabled)
+                    .disabled(!state.isAutoQuitEnabled)
+
+                LabeledContent {
+                    HStack(spacing: 6) {
+                        hourPicker(selection: $state.quietStartHour)
+                        Text(strings.quietHoursRange)
+                            .foregroundStyle(.secondary)
+                        hourPicker(selection: $state.quietEndHour)
+                    }
+                } label: {
+                    Text(strings.quietHoursWindow)
+                }
+                .disabled(!state.isAutoQuitEnabled || !state.quietHoursEnabled)
+
+                Toggle(strings.quietWeekdaysOnly, isOn: $state.quietWeekdaysOnly)
+                    .disabled(!state.isAutoQuitEnabled || !state.quietHoursEnabled)
+            } header: {
+                Text(strings.quietHoursSection)
+            } footer: {
+                Text(strings.quietHoursNote)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Section {
                 Toggle(strings.useSystemIdle, isOn: $state.useSystemIdle)
                     .disabled(!state.isAutoQuitEnabled)
 
@@ -120,6 +147,17 @@ struct GeneralSettingsView: View {
         }
         .formStyle(.grouped)
         .frame(minWidth: 520, minHeight: 420)
+    }
+
+    @ViewBuilder
+    private func hourPicker(selection: Binding<Int>) -> some View {
+        Picker("", selection: selection) {
+            ForEach(0..<24, id: \.self) { hour in
+                Text(String(format: "%02d:00", hour)).tag(hour)
+            }
+        }
+        .labelsHidden()
+        .frame(width: 84)
     }
 
     @ViewBuilder

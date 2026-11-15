@@ -156,6 +156,25 @@ struct Strings: Sendable {
         }
     }
 
+    // MARK: - Quiet hours
+
+    var quietHoursSection: String { pick("Quiet Hours", "静默时段") }
+    var quietHoursEnabled: String {
+        pick("Don't quit anything during a time window", "时间段内不自动退出")
+    }
+    var quietHoursWindow: String { pick("Window", "时间段") }
+    var quietHoursRange: String { pick("to", "到") }
+    var quietWeekdaysOnly: String { pick("Weekdays only", "仅工作日") }
+    var quietHoursNote: String {
+        pick(
+            "Useful on a work Mac: outside this window nothing is quit, and no idle time builds up, so nothing is quit the moment it ends.",
+            "适合办公电脑：这个时间段内不会退出任何应用，也不会累计空闲时间，所以时段结束时不会一次性全部退出。"
+        )
+    }
+    func quietHoursBanner(start: String, end: String) -> String {
+        pick("Quiet hours \(start)–\(end) · not quitting", "静默时段 \(start)–\(end) · 不自动退出")
+    }
+
     // MARK: - System idle
 
     var systemIdleSection: String { pick("Away from Mac", "离开电脑时") }

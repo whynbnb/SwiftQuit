@@ -18,6 +18,10 @@ struct MenuBarView: View {
                 pauseBanner
                 Divider()
             }
+            if state.isQuietPeriod {
+                quietHoursBanner
+                Divider()
+            }
             if !state.pendingQuits.isEmpty {
                 pendingQuitPanel
                 Divider()
@@ -267,6 +271,24 @@ struct MenuBarView: View {
 
     private var pendingApps: [AppInfo] {
         state.runningApps.filter { state.pendingQuits.contains($0.bundleID) }
+    }
+
+    private var quietHoursBanner: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "moon.zzz.fill")
+                .font(.system(size: 12))
+                .foregroundColor(.secondary)
+            Text(strings.quietHoursBanner(
+                start: String(format: "%02d:00", state.quietStartHour),
+                end: String(format: "%02d:00", state.quietEndHour)
+            ))
+            .font(.system(size: 12))
+            .foregroundColor(.secondary)
+            Spacer()
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 7)
+        .background(Color.secondary.opacity(0.08))
     }
 
     private var pauseBanner: some View {

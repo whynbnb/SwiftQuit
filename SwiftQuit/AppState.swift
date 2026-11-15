@@ -245,6 +245,20 @@ final class AppState: ObservableObject {
     }
     /// Seconds since the last user input, refreshed on every tick for display.
     @Published var systemIdleSeconds: TimeInterval = 0
+    /// Do not quit anything inside a daily time window, e.g. working hours.
+    @Published var quietHoursEnabled: Bool = false {
+        didSet { UserDefaults.standard.set(quietHoursEnabled, forKey: "quietHoursEnabled") }
+    }
+    @Published var quietStartHour: Int = 9 {
+        didSet { UserDefaults.standard.set(quietStartHour, forKey: "quietStartHour") }
+    }
+    @Published var quietEndHour: Int = 18 {
+        didSet { UserDefaults.standard.set(quietEndHour, forKey: "quietEndHour") }
+    }
+    /// Restrict the window to Monday–Friday.
+    @Published var quietWeekdaysOnly: Bool = false {
+        didSet { UserDefaults.standard.set(quietWeekdaysOnly, forKey: "quietWeekdaysOnly") }
+    }
     @Published var history: [QuitEvent] = []
 
     @Published var foregroundBundleID: String = "" {
@@ -295,6 +309,38 @@ final class AppState: ObservableObject {
     }
 
     var isPaused: Bool { pausedUntil != nil }
+
+    /// True inside the configured quiet window, where nothing is quit even if the
+    /// countdown reaches zero.
+    var isInQuietHours: Bool {
+        quietHoursEnabled && Self.isQuietHour(
+            date: Date(),
+            startHour: quietStartHour,
+            endHour: quietEndHour,
+            weekdaysOnly: quietWeekdaysOnly
+        )
+    }
+
+    /// Published copy of `isInQuietHours`, refreshed on every tick so the UI can
+    /// react to the window opening and closing.
+    @Published var isQuietPeriod = false
+
+    /// Whether `date` falls in [startHour, endHour). A window that ends before it
+    /// starts is treated as overnight, e.g. 22 → 7.
+    static func isQuietHour(date: Date, startHour: Int, endHour: Int, weekdaysOnly: Bool) -> Bool {
+        guard startHour != endHour else { return false }
+        let calendar = Calendar.current
+        if weekdaysOnly {
+            let weekday = calendar.component(.weekday, from: date)
+            // 1 = Sunday, 7 = Saturday
+            guard weekday != 1, weekday != 7 else { return false }
+        }
+        let hour = calendar.component(.hour, from: date)
+        if startHour < endHour {
+            return hour >= startHour && hour < endHour
+        }
+        return hour >= startHour || hour < endHour
+    }
 
     /// The managed app closest to being quit, if any.
     var nextQuit: NextQuit? {
@@ -349,6 +395,10 @@ final class AppState: ObservableObject {
         skipActiveBackgroundItems = UserDefaults.standard.object(forKey: "skipActiveBackgroundItems") as? Bool ?? false
         useSystemIdle = UserDefaults.standard.object(forKey: "useSystemIdle") as? Bool ?? false
         systemIdleMinutes = UserDefaults.standard.object(forKey: "systemIdleMinutes") as? Double ?? 30
+        quietHoursEnabled = UserDefaults.standard.object(forKey: "quietHoursEnabled") as? Bool ?? false
+        quietStartHour = UserDefaults.standard.object(forKey: "quietStartHour") as? Int ?? 9
+        quietEndHour = UserDefaults.standard.object(forKey: "quietEndHour") as? Int ?? 18
+        quietWeekdaysOnly = UserDefaults.standard.object(forKey: "quietWeekdaysOnly") as? Bool ?? false
         launchAtLogin = LaunchAtLoginManager.shared.isEnabled
         history = Self.loadHistory()
 
@@ -809,6 +859,29 @@ final class AppState: ObservableObject {
             resumePause()
         }
         pauseRemaining = 0
+
+        // Outside quiet hours the countdown is frozen: apps should not bank up
+        // idleness during the window and all quit the moment it closes.
+        let inQuietHours = quietHoursEnabled && Self.isQuietHour(
+            date: now,
+            startHour: quietStartHour,
+            endHour: quietEndHour,
+            weekdaysOnly: quietWeekdaysOnly
+        )
+        if isQuietPeriod != inQuietHours {
+            isQuietPeriod = inQuietHours
+            logger.debug("Quiet hours active: \(inQuietHours, privacy: .public)")
+        }
+        if inQuietHours {
+            // Keep every clock fresh so no app is overdue when the window ends.
+            for app in runningApps where app.bundleID != SystemApps.selfBundleID {
+                lastActiveDates[app.bundleID] = now
+            }
+            if !graceDeadlines.isEmpty { cancelAllPendingQuits() }
+            remainingSeconds = [:]
+            updateUnresponsiveApps(now: now)
+            return
+        }
 
         // With auto quit off the countdown does not run, but an ignored manual
         // quit must still surface so the user can force it.
