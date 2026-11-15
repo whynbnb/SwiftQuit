@@ -295,6 +295,8 @@ struct Strings: Sendable {
     }
 
     var keepRunning: String { pick("Keep Running", "保持运行") }
+    var pendingQuitSection: String { pick("About to quit", "即将退出") }
+    var keepAllRunning: String { pick("Keep All", "全部保持运行") }
 
     // MARK: - Formatting
 

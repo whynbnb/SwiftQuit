@@ -18,6 +18,10 @@ struct MenuBarView: View {
                 pauseBanner
                 Divider()
             }
+            if !state.pendingQuits.isEmpty {
+                pendingQuitPanel
+                Divider()
+            }
             ScrollView {
                 LazyVStack(spacing: 2) {
                     ForEach(state.displayedApps) { app in
@@ -206,6 +210,63 @@ struct MenuBarView: View {
                 .padding(.leading, 20)
         }
         .padding(.bottom, 4)
+    }
+
+    /// Apps that are in their pre-quit grace period. Shown inline so the user
+    /// sees what is about to be quit even when notification permission was
+    /// denied and no banner appears.
+    private var pendingQuitPanel: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Image(systemName: "clock.badge.exclamationmark")
+                    .font(.system(size: 11))
+                    .foregroundColor(.orange)
+                Text(strings.pendingQuitSection)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.orange)
+                Spacer()
+                Button(strings.keepAllRunning) {
+                    state.keepAllPending()
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 11))
+                .foregroundColor(.accentColor)
+            }
+            .padding(.horizontal, 14)
+
+            ForEach(pendingApps) { app in
+                HStack(spacing: 8) {
+                    if let icon = app.icon {
+                        Image(nsImage: icon)
+                            .resizable()
+                            .frame(width: 16, height: 16)
+                    }
+                    Text(app.name)
+                        .font(.system(size: 12))
+                        .lineLimit(1)
+                    Spacer()
+                    if let seconds = state.remainingSeconds[app.bundleID] {
+                        Text(strings.quittingIn(seconds: max(1, Int(seconds.rounded(.up)))))
+                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            .foregroundColor(.orange)
+                    }
+                    Button(strings.keepRunning) {
+                        state.keepRunning(bundleID: app.bundleID)
+                    }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 11))
+                    .foregroundColor(.accentColor)
+                }
+                .padding(.horizontal, 14)
+                .padding(.leading, 6)
+            }
+        }
+        .padding(.vertical, 6)
+        .background(Color.orange.opacity(0.07))
+    }
+
+    private var pendingApps: [AppInfo] {
+        state.runningApps.filter { state.pendingQuits.contains($0.bundleID) }
     }
 
     private var pauseBanner: some View {

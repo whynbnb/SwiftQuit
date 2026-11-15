@@ -416,10 +416,10 @@ final class AppState: ObservableObject {
     /// the pause feature treats its own duration.
     private func shiftIdleClocks(by delta: TimeInterval) {
         guard delta > 0 else { return }
-        for (bundleID, date) in lastActiveDates {
+        for (bundleID, date) in Array(lastActiveDates) {
             lastActiveDates[bundleID] = date.addingTimeInterval(delta)
         }
-        for (bundleID, deadline) in graceDeadlines {
+        for (bundleID, deadline) in Array(graceDeadlines) {
             graceDeadlines[bundleID] = deadline.addingTimeInterval(delta)
         }
     }
@@ -451,6 +451,15 @@ final class AppState: ObservableObject {
     func keepRunning(bundleID: String) {
         lastActiveDates[bundleID] = Date()
         cancelPendingQuit(bundleID)
+    }
+
+    /// Cancels every pending quit at once, for the inline panel in the popover.
+    func keepAllPending() {
+        // Snapshot the keys: keepRunning mutates graceDeadlines.
+        for bundleID in Array(graceDeadlines.keys) {
+            keepRunning(bundleID: bundleID)
+        }
+        pendingQuits.removeAll()
     }
 
     /// Force quits an app immediately. Used when a normal quit request was
@@ -669,7 +678,7 @@ final class AppState: ObservableObject {
             let delta = Date().timeIntervalSince(started)
             if delta > 0 {
                 // Time spent paused should not count towards idleness.
-                for (bundleID, date) in lastActiveDates {
+                for (bundleID, date) in Array(lastActiveDates) {
                     lastActiveDates[bundleID] = date.addingTimeInterval(delta)
                 }
             }
@@ -995,7 +1004,7 @@ final class AppState: ObservableObject {
     }
 
     private func cancelAllPendingQuits() {
-        for bundleID in graceDeadlines.keys {
+        for bundleID in Array(graceDeadlines.keys) {
             notifier.clear(bundleID: bundleID)
         }
         graceDeadlines.removeAll()
