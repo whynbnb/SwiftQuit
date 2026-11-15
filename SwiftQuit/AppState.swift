@@ -233,6 +233,18 @@ final class AppState: ObservableObject {
     @Published var skipAudioApps: Bool = true {
         didSet { UserDefaults.standard.set(skipAudioApps, forKey: "skipAudioApps") }
     }
+    /// Also let the frontmost app be cleaned up once the user has not touched the
+    /// Mac for a while. Off by default: normally the app in use is never quit.
+    @Published var useSystemIdle: Bool = false {
+        didSet { UserDefaults.standard.set(useSystemIdle, forKey: "useSystemIdle") }
+    }
+    /// How long without keyboard or mouse input before the frontmost app counts
+    /// as idle too.
+    @Published var systemIdleMinutes: Double = 30 {
+        didSet { UserDefaults.standard.set(systemIdleMinutes, forKey: "systemIdleMinutes") }
+    }
+    /// Seconds since the last user input, refreshed on every tick for display.
+    @Published var systemIdleSeconds: TimeInterval = 0
     @Published var history: [QuitEvent] = []
 
     @Published var foregroundBundleID: String = "" {
@@ -335,6 +347,8 @@ final class AppState: ObservableObject {
         gracePeriod = UserDefaults.standard.object(forKey: "gracePeriod") as? Double ?? 10
         skipAudioApps = UserDefaults.standard.object(forKey: "skipAudioApps") as? Bool ?? true
         skipActiveBackgroundItems = UserDefaults.standard.object(forKey: "skipActiveBackgroundItems") as? Bool ?? false
+        useSystemIdle = UserDefaults.standard.object(forKey: "useSystemIdle") as? Bool ?? false
+        systemIdleMinutes = UserDefaults.standard.object(forKey: "systemIdleMinutes") as? Double ?? 30
         launchAtLogin = LaunchAtLoginManager.shared.isEnabled
         history = Self.loadHistory()
 
@@ -775,6 +789,7 @@ final class AppState: ObservableObject {
             }
         }
         lastTickDate = now
+        updateSystemIdle()
 
         if let until = pausedUntil {
             if until > now {
@@ -821,12 +836,6 @@ final class AppState: ObservableObject {
                 continue
             }
 
-            if bundleID == foregroundBundleID {
-                lastActiveDates[bundleID] = now
-                dropPending(bundleID)
-                continue
-            }
-
             if skipAudioApps, audioBundleIDs.contains(bundleID) {
                 // Playing audio or in a call: keep the clock fresh and never quit.
                 lastActiveDates[bundleID] = now
@@ -834,11 +843,23 @@ final class AppState: ObservableObject {
                 continue
             }
 
-            // Track apps we discover after launch (including ones that were already
-            // running in the background) so the countdown actually starts.
-            if lastActiveDates[bundleID] == nil {
+            if bundleID == foregroundBundleID {
+                if isUserAwayFromMac {
+                    // Nobody is at the Mac, so the frontmost app is idle too.
+                    if lastActiveDates[bundleID] == nil {
+                        lastActiveDates[bundleID] = now
+                    }
+                } else {
+                    lastActiveDates[bundleID] = now
+                    dropPending(bundleID)
+                    continue
+                }
+            } else if lastActiveDates[bundleID] == nil {
+                // Track apps we discover after launch (including ones that were
+                // already running in the background) so the countdown starts.
                 lastActiveDates[bundleID] = now
             }
+
             let threshold = thresholdMinutes(for: bundleID) * 60
             let lastActive = lastActiveDates[bundleID] ?? now
             let remaining = max(0, threshold - now.timeIntervalSince(lastActive))
@@ -896,6 +917,20 @@ final class AppState: ObservableObject {
             guard running.contains(bundleID) else { return nil }
             return now.timeIntervalSince(requestedAt) >= Self.unresponsiveTimeout ? bundleID : nil
         })
+    }
+
+    // MARK: - System idle
+
+    private func updateSystemIdle() {
+        let anyEvent = CGEventType(rawValue: ~0)!
+        systemIdleSeconds = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: anyEvent)
+    }
+
+    /// True when the option is on and the user has not touched the Mac for long
+    /// enough that even the frontmost app should count as idle.
+    private var isUserAwayFromMac: Bool {
+        guard useSystemIdle else { return false }
+        return systemIdleSeconds >= systemIdleMinutes * 60
     }
 
     private func reason(for app: AppInfo) -> QuitReason {

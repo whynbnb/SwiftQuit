@@ -52,6 +52,41 @@ struct GeneralSettingsView: View {
             }
 
             Section {
+                Toggle(strings.useSystemIdle, isOn: $state.useSystemIdle)
+                    .disabled(!state.isAutoQuitEnabled)
+
+                LabeledContent {
+                    HStack(spacing: 6) {
+                        Menu {
+                            ForEach(presets, id: \.self) { minutes in
+                                Button(strings.duration(minutes: minutes)) {
+                                    state.systemIdleMinutes = Double(minutes)
+                                }
+                            }
+                        } label: {
+                            Text(strings.duration(minutes: Int(state.systemIdleMinutes)))
+                                .monospacedDigit()
+                        }
+                        .menuStyle(.borderlessButton)
+                        .fixedSize()
+
+                        Stepper("", value: $state.systemIdleMinutes, in: 5...480, step: 5)
+                            .labelsHidden()
+                    }
+                } label: {
+                    Text(strings.systemIdleThreshold)
+                }
+                .disabled(!state.isAutoQuitEnabled || !state.useSystemIdle)
+            } header: {
+                Text(strings.systemIdleSection)
+            } footer: {
+                Text(strings.systemIdleNote)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Section {
                 LabeledContent {
                     pauseControls
                 } label: {

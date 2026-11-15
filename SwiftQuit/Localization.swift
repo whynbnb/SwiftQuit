@@ -156,6 +156,20 @@ struct Strings: Sendable {
         }
     }
 
+    // MARK: - System idle
+
+    var systemIdleSection: String { pick("Away from Mac", "离开电脑时") }
+    var useSystemIdle: String {
+        pick("Also quit the frontmost app after no input", "长时间无操作时也退出当前应用")
+    }
+    var systemIdleThreshold: String { pick("No input for", "无输入超过") }
+    var systemIdleNote: String {
+        pick(
+            "Normally the app you are using is never quit. With this on, leaving the Mac untouched for the threshold above makes it count as idle too, so nothing is left running when you forget to close it.",
+            "默认情况下正在使用的应用永远不会被退出。开启后，超过上面的时间没有键盘鼠标操作，当前应用也会视为空闲，适合下班忘记关电脑的情况。"
+        )
+    }
+
     // MARK: - Background items
 
     var backgroundTab: String { pick("Background", "后台") }
